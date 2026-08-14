@@ -43,6 +43,20 @@ let users = User::query()
     .render(&Postgres);
 ```
 
+Join across entities; the join key is type-checked (`eq_column` requires both columns to share a Rust type, so joining an `i64` key to a `String` column is a compile error):
+
+```rust
+let rows = User::query()
+    .join::<Department>(User::department_id.eq_column(Department::id))
+    .select((User::name, Department::name))
+    .filter(Department::name.eq("AI"))
+    .render(&Postgres);
+
+// SELECT "users"."name", "departments"."name" FROM "users"
+// INNER JOIN "departments" ON ("users"."department_id" = "departments"."id")
+// WHERE ("departments"."name" = $1)
+```
+
 The same query renders to any supported dialect - the AST is built once, the dialect only changes quoting and placeholder style:
 
 | Dialect | Identifiers | Placeholders |

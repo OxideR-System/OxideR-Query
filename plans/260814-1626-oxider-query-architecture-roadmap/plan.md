@@ -81,7 +81,8 @@ oxider-query/                  # workspace root
 | 0 | [DONE] Scaffold workspace, CI (fmt/clippy/test), khung AST core | Workspace build xanh, CI yml có |
 | 1 | [DONE] Expression system + Column model + derive macro tối thiểu. SELECT ... WHERE 1 bảng. Render Postgres. | 3 test render xanh, type-safety verified |
 | 2 | [DONE] Trait `Dialect` tách module + Postgres/MySQL/SQLite. Khác biệt placeholder ($N vs ?) + quote (" vs `) + escaping | 3 dialect render đúng, unit test escaping |
-| 3 | JOIN với type-tracking bảng đã join + nullability outer join | JOIN type-safe, test biên |
+| 3a | [DONE] JOIN render (INNER/LEFT) + multi-entity select + eq_column join-key type-safe | 3 join test, param order đúng, mismatch key fail compile |
+| 3b | Type-track bảng đã join (chỉ cho ref cột đã join) + nullability outer join ở type | JOIN type-safe đầy đủ, test biên |
 | 4 | Đủ clause: ORDER BY, GROUP BY, HAVING, aggregate, subquery, INSERT/UPDATE/DELETE | Coverage SQL cơ bản đầy đủ |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 6 | Lớp exec + mapping row->struct, async | Chạy query thật trên DB, tích hợp sqlx |

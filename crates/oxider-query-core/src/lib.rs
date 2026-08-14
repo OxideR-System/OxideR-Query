@@ -10,6 +10,7 @@
 pub mod column;
 pub mod dialect;
 pub mod expr;
+pub mod join;
 pub mod predicate;
 pub mod query;
 pub mod render;
@@ -18,6 +19,7 @@ pub mod value;
 pub use column::{Column, Entity};
 pub use dialect::{Dialect, MySql, Postgres, Sqlite};
 pub use expr::{BinOp, Expr};
+pub use join::{Join, JoinKind};
 pub use predicate::{OrderDir, OrderTerm, Predicate};
 pub use query::{Select, SelectQuery, Selection};
 pub use render::Rendered;

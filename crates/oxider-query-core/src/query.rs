@@ -3,6 +3,7 @@
 use crate::column::{Column, Entity};
 use crate::dialect::Dialect;
 use crate::expr::{BinOp, Expr};
+use crate::join::{Join, JoinKind};
 use crate::predicate::{OrderTerm, Predicate};
 use crate::render::Rendered;
 use core::marker::PhantomData;
@@ -12,6 +13,8 @@ use core::marker::PhantomData;
 pub struct SelectQuery {
     /// FROM table.
     pub from: &'static str,
+    /// JOIN clauses, in order.
+    pub joins: Vec<Join>,
     /// Selected columns/expressions. Empty means `SELECT *`.
     pub columns: Vec<Expr>,
     /// WHERE predicate, if any.
@@ -26,6 +29,7 @@ pub struct SelectQuery {
 
 /// Fluent SELECT builder over entity `E`. Start with `E::query()`.
 pub struct Select<E> {
+    joins: Vec<Join>,
     columns: Vec<Expr>,
     filter: Option<Expr>,
     order: Vec<OrderTerm>,
@@ -37,6 +41,7 @@ pub struct Select<E> {
 impl<E> Select<E> {
     pub(crate) fn new() -> Self {
         Select {
+            joins: Vec::new(),
             columns: Vec::new(),
             filter: None,
             order: Vec::new(),
@@ -51,6 +56,24 @@ impl<E: Entity> Select<E> {
     /// Set the selected columns. Accepts a single [`Column`] or a tuple of them.
     pub fn select<S: Selection>(mut self, selection: S) -> Self {
         self.columns = selection.into_exprs();
+        self
+    }
+
+    /// Add an `INNER JOIN` on the given entity with an ON condition.
+    ///
+    /// The joined entity is named via turbofish; the condition is usually an
+    /// [`eq_column`](crate::Column::eq_column) between the two tables' keys:
+    /// `.join::<Department>(User::department_id.eq_column(Department::id))`.
+    pub fn join<E2: Entity>(mut self, on: Predicate) -> Self {
+        self.joins
+            .push(Join::new(JoinKind::Inner, E2::TABLE, on.into_expr()));
+        self
+    }
+
+    /// Add a `LEFT JOIN` on the given entity with an ON condition.
+    pub fn left_join<E2: Entity>(mut self, on: Predicate) -> Self {
+        self.joins
+            .push(Join::new(JoinKind::Left, E2::TABLE, on.into_expr()));
         self
     }
 
@@ -92,6 +115,7 @@ impl<E: Entity> Select<E> {
     pub fn build(self) -> SelectQuery {
         SelectQuery {
             from: E::TABLE,
+            joins: self.joins,
             columns: self.columns,
             filter: self.filter,
             order: self.order,

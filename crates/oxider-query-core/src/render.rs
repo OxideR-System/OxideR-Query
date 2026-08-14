@@ -36,6 +36,15 @@ impl SelectQuery {
         sql.push_str(" FROM ");
         sql.push_str(&dialect.quote_ident(self.from));
 
+        for join in &self.joins {
+            sql.push(' ');
+            sql.push_str(join.kind.as_sql());
+            sql.push(' ');
+            sql.push_str(&dialect.quote_ident(join.table));
+            sql.push_str(" ON ");
+            sql.push_str(&render_expr(&join.on, dialect, &mut params));
+        }
+
         if let Some(filter) = &self.filter {
             sql.push_str(" WHERE ");
             sql.push_str(&render_expr(filter, dialect, &mut params));
