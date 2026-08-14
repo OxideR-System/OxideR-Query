@@ -1,0 +1,12 @@
+[package]
+name = "oxider-query"
+description = "Type-safe, multi-dialect SQL query builder for Rust (QueryDSL-inspired)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+oxider-query-core.workspace = true
+oxider-query-macros.workspace = true
