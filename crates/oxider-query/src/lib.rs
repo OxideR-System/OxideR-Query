@@ -36,6 +36,8 @@ pub use oxider_query_macros::Entity;
 
 /// Common imports for building queries.
 pub mod prelude {
-    pub use oxider_query_core::{Dialect, Expression, ExpressionMethods, Postgres, Query, Table};
+    pub use oxider_query_core::{
+        Dialect, Expression, ExpressionMethods, MySql, Postgres, Query, Sqlite, Table,
+    };
     pub use oxider_query_macros::Entity;
 }

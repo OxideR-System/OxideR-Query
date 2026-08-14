@@ -2,7 +2,7 @@
 
 Type-safe, multi-dialect SQL query builder for Rust, inspired by Java's [QueryDSL](https://github.com/querydsl/querydsl) but pushing type-safety further with Rust's type system.
 
-> Status: early MVP (0.1.0). SELECT with typed WHERE, Postgres rendering. Pre-1.0, so the API tracks latest stable Rust and may change.
+> Status: 0.1.0, in active development. SELECT with typed WHERE, rendering to PostgreSQL, MySQL, and SQLite. Pre-1.0, so the API tracks latest stable Rust and may change.
 
 ## What it does today
 
@@ -31,6 +31,14 @@ let rendered = Query::select()
 // rendered.params: ["Alice"]
 ```
 
+The same query renders to any supported dialect - the AST is built once, the dialect only changes quoting and placeholder style:
+
+| Dialect | Identifiers | Placeholders |
+|---------|-------------|--------------|
+| `Postgres` | `"ident"` | `$1, $2` |
+| `MySql` | `` `ident` `` | `?` |
+| `Sqlite` | `"ident"` | `?` |
+
 Comparing a column against the wrong SQL type is a compile error:
 
 ```rust
@@ -53,7 +61,7 @@ u.name.eq(123);          // error: i64: IntoExpr<Text> is not satisfied
 
 ## Roadmap
 
-See `plans/260814-1626-oxider-query-architecture-roadmap/plan.md`. Next up: `Dialect` abstraction for MySQL/SQLite, then joins with type-tracked tables and nullability.
+See `plans/260814-1626-oxider-query-architecture-roadmap/plan.md`. Next up: joins with type-tracked tables and nullability, then the remaining SQL clauses (ORDER BY, GROUP BY, aggregates, INSERT/UPDATE/DELETE).
 
 ## Development
 

@@ -18,7 +18,7 @@ pub mod sql_type;
 pub mod value;
 
 pub use column::{Column, Table};
-pub use dialect::{Dialect, Postgres};
+pub use dialect::{Dialect, MySql, Postgres, Sqlite};
 pub use expr::{BinOp, Expr};
 pub use expression::{BoolExpr, Expression, ExpressionMethods, IntoExpr};
 pub use query::{Query, Select, SelectQuery, Selection};
