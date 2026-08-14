@@ -1,57 +1,102 @@
 //! The SELECT query builder and its dialect-agnostic output AST.
 
-use crate::column::{Column, Table};
+use crate::column::{Column, Entity};
 use crate::dialect::Dialect;
-use crate::expr::Expr;
-use crate::expression::Expression;
+use crate::expr::{BinOp, Expr};
+use crate::predicate::{OrderTerm, Predicate};
 use crate::render::Rendered;
-use crate::sql_type::{Bool, SqlType};
+use core::marker::PhantomData;
 
-/// A built SELECT query in dialect-agnostic form. Render it with
+/// A built SELECT query in dialect-agnostic form. Render with
 /// [`SelectQuery::render`].
-#[derive(Debug, Clone, PartialEq)]
 pub struct SelectQuery {
-    /// Selected column/expression list. Empty means `SELECT *`.
+    /// FROM table.
+    pub from: &'static str,
+    /// Selected columns/expressions. Empty means `SELECT *`.
     pub columns: Vec<Expr>,
-    /// The FROM table, if any.
-    pub from: Option<&'static str>,
-    /// The WHERE predicate, if any.
+    /// WHERE predicate, if any.
     pub filter: Option<Expr>,
+    /// ORDER BY terms, in order.
+    pub order: Vec<OrderTerm>,
+    /// LIMIT, if any.
+    pub limit: Option<u64>,
+    /// OFFSET, if any.
+    pub offset: Option<u64>,
 }
 
-/// Fluent builder for SELECT queries. Start with [`Query::select`].
-#[derive(Default)]
-pub struct Select {
+/// Fluent SELECT builder over entity `E`. Start with `E::query()`.
+pub struct Select<E> {
     columns: Vec<Expr>,
-    from: Option<&'static str>,
     filter: Option<Expr>,
+    order: Vec<OrderTerm>,
+    limit: Option<u64>,
+    offset: Option<u64>,
+    _marker: PhantomData<fn() -> E>,
 }
 
-impl Select {
-    /// Set the FROM table from a generated metamodel value.
-    pub fn from<T: Table>(mut self, table: T) -> Self {
-        self.from = Some(table.table_name());
-        self
+impl<E> Select<E> {
+    pub(crate) fn new() -> Self {
+        Select {
+            columns: Vec::new(),
+            filter: None,
+            order: Vec::new(),
+            limit: None,
+            offset: None,
+            _marker: PhantomData,
+        }
     }
+}
 
+impl<E: Entity> Select<E> {
     /// Set the selected columns. Accepts a single [`Column`] or a tuple of them.
     pub fn select<S: Selection>(mut self, selection: S) -> Self {
         self.columns = selection.into_exprs();
         self
     }
 
-    /// Set the WHERE predicate. Only boolean-typed expressions are accepted.
-    pub fn filter<P: Expression<Sql = Bool>>(mut self, pred: P) -> Self {
-        self.filter = Some(pred.to_expr());
+    /// Add a WHERE predicate. Multiple calls are combined with `AND`.
+    pub fn filter(mut self, predicate: Predicate) -> Self {
+        self.and_filter(predicate.into_expr());
+        self
+    }
+
+    /// Add a WHERE predicate only if present. Combined with `AND`.
+    ///
+    /// Ergonomic for dynamic queries built from optional filter fields.
+    pub fn filter_opt(mut self, predicate: Option<Predicate>) -> Self {
+        if let Some(p) = predicate {
+            self.and_filter(p.into_expr());
+        }
+        self
+    }
+
+    /// Append an ORDER BY term.
+    pub fn order_by(mut self, term: OrderTerm) -> Self {
+        self.order.push(term);
+        self
+    }
+
+    /// Set LIMIT.
+    pub fn limit(mut self, n: u64) -> Self {
+        self.limit = Some(n);
+        self
+    }
+
+    /// Set OFFSET.
+    pub fn offset(mut self, n: u64) -> Self {
+        self.offset = Some(n);
         self
     }
 
     /// Finalize into a [`SelectQuery`] AST.
     pub fn build(self) -> SelectQuery {
         SelectQuery {
+            from: E::TABLE,
             columns: self.columns,
-            from: self.from,
             filter: self.filter,
+            order: self.order,
+            limit: self.limit,
+            offset: self.offset,
         }
     }
 
@@ -59,15 +104,16 @@ impl Select {
     pub fn render<D: Dialect>(self, dialect: &D) -> Rendered {
         self.build().render(dialect)
     }
-}
 
-/// Entry point for building queries.
-pub struct Query;
-
-impl Query {
-    /// Begin a SELECT query.
-    pub fn select() -> Select {
-        Select::default()
+    fn and_filter(&mut self, expr: Expr) {
+        self.filter = Some(match self.filter.take() {
+            Some(prev) => Expr::Binary {
+                op: BinOp::And,
+                lhs: Box::new(prev),
+                rhs: Box::new(expr),
+            },
+            None => expr,
+        });
     }
 }
 
@@ -77,27 +123,27 @@ pub trait Selection {
     fn into_exprs(self) -> Vec<Expr>;
 }
 
-impl<S: SqlType> Selection for Column<S> {
+impl<E, T> Selection for Column<E, T> {
     fn into_exprs(self) -> Vec<Expr> {
-        vec![self.to_expr()]
+        vec![Expr::Column {
+            table: self.table,
+            name: self.name,
+        }]
     }
 }
 
 macro_rules! selection_tuple {
-    ($($name:ident),+) => {
-        impl<$($name: SqlType),+> Selection for ($(Column<$name>,)+) {
+    ($($e:ident $t:ident $idx:tt),+) => {
+        impl<$($e, $t),+> Selection for ($(Column<$e, $t>,)+) {
             fn into_exprs(self) -> Vec<Expr> {
-                #[allow(non_snake_case)]
-                let ($($name,)+) = self;
-                vec![$($name.to_expr()),+]
+                vec![$(Expr::Column { table: self.$idx.table, name: self.$idx.name }),+]
             }
         }
     };
 }
 
-selection_tuple!(A);
-selection_tuple!(A, B);
-selection_tuple!(A, B, C);
-selection_tuple!(A, B, C, D);
-selection_tuple!(A, B, C, D, E);
-selection_tuple!(A, B, C, D, E, F);
+selection_tuple!(Ea Ta 0, Eb Tb 1);
+selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2);
+selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2, Ed Td 3);
+selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2, Ed Td 3, Ee Te 4);
+selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2, Ed Td 3, Ee Te 4, Ef Tf 5);

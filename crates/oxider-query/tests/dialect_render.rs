@@ -9,15 +9,14 @@ use oxider_query::{SelectQuery, Value};
 struct User {
     id: i64,
     name: String,
+    age: i32,
 }
 
 /// A single query built once, then rendered per dialect.
 fn built() -> SelectQuery {
-    let u = User::table();
-    Query::select()
-        .from(u)
-        .select((u.id, u.name))
-        .filter(u.name.eq("Alice").and(u.id.gt(10)))
+    User::query()
+        .select((User::id, User::name))
+        .filter(User::name.eq("Alice").and(User::age.gt(10)))
         .build()
 }
 
@@ -26,7 +25,7 @@ fn postgres_numbered_placeholders_and_double_quotes() {
     let r = built().render(&Postgres);
     assert_eq!(
         r.sql,
-        r#"SELECT "users"."id", "users"."name" FROM "users" WHERE (("users"."name" = $1) AND ("users"."id" > $2))"#
+        r#"SELECT "users"."id", "users"."name" FROM "users" WHERE (("users"."name" = $1) AND ("users"."age" > $2))"#
     );
     assert_eq!(r.params, vec![Value::Text("Alice".into()), Value::Int(10)]);
 }
@@ -36,7 +35,7 @@ fn mysql_positional_placeholders_and_backticks() {
     let r = built().render(&MySql);
     assert_eq!(
         r.sql,
-        "SELECT `users`.`id`, `users`.`name` FROM `users` WHERE ((`users`.`name` = ?) AND (`users`.`id` > ?))"
+        "SELECT `users`.`id`, `users`.`name` FROM `users` WHERE ((`users`.`name` = ?) AND (`users`.`age` > ?))"
     );
     assert_eq!(r.params, vec![Value::Text("Alice".into()), Value::Int(10)]);
 }
@@ -46,6 +45,6 @@ fn sqlite_positional_placeholders_and_double_quotes() {
     let r = built().render(&Sqlite);
     assert_eq!(
         r.sql,
-        r#"SELECT "users"."id", "users"."name" FROM "users" WHERE (("users"."name" = ?) AND ("users"."id" > ?))"#
+        r#"SELECT "users"."id", "users"."name" FROM "users" WHERE (("users"."name" = ?) AND ("users"."age" > ?))"#
     );
 }

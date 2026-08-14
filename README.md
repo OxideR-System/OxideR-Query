@@ -16,19 +16,31 @@ use oxider_query::prelude::*;
 struct User {
     id: i64,
     name: String,
+    age: i32,
     email: Option<String>,
 }
 
-let u = User::table();
-let rendered = Query::select()
-    .from(u)
-    .select((u.id, u.name))
-    .filter(u.name.eq("Alice"))
+let rendered = User::query()
+    .select((User::id, User::name))
+    .filter(User::name.contains("nguyen").and(User::age.ge(18)))
+    .order_by(User::age.desc())
+    .limit(20)
     .render(&Postgres);
 
 // rendered.sql:
-//   SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = $1)
-// rendered.params: ["Alice"]
+//   SELECT "users"."id", "users"."name" FROM "users"
+//   WHERE (("users"."name" LIKE $1) AND ("users"."age" >= $2))
+//   ORDER BY "users"."age" DESC LIMIT 20
+// rendered.params: ["%nguyen%", 18]
+```
+
+Columns are generated as associated consts (`User::id`), so there is no separate metamodel type to name - closer to QueryDSL's `QUser.user.id`, but terser. Build dynamic queries with `filter_opt`:
+
+```rust
+let users = User::query()
+    .filter_opt(filter.name.map(|v| User::name.contains(v)))
+    .filter_opt(filter.min_age.map(|v| User::age.ge(v)))
+    .render(&Postgres);
 ```
 
 The same query renders to any supported dialect - the AST is built once, the dialect only changes quoting and placeholder style:
@@ -39,17 +51,20 @@ The same query renders to any supported dialect - the AST is built once, the dia
 | `MySql` | `` `ident` `` | `?` |
 | `Sqlite` | `"ident"` | `?` |
 
-Comparing a column against the wrong SQL type is a compile error:
+Misuse is a compile error, with readable messages:
 
 ```rust
-u.name.eq(123);          // error: i64: IntoExpr<Text> is not satisfied
+User::name.eq(123);        // error: the trait bound `i64: Into<String>` is not satisfied
+User::age.contains("50");  // error: no method named `contains` found for Column<_, i32>
+User::flag.gt(true);       // error: `bool: Orderable` is not satisfied
 ```
 
 ## Design
 
 - **Query builder, layered.** The core produces `(sql, params)` and is database-agnostic. Connection handling and row mapping are a separate, optional layer added later.
 - **AST separated from rendering.** Queries build a dialect-agnostic AST; `render(&dialect)` emits dialect-specific SQL. This is the key to multi-dialect support without duplicating logic.
-- **Selective type-state.** Type-safety is enforced where it matters (SQL type of comparisons now; joined-table scoping and nullability later), without type-stating everything into unreadable errors.
+- **`Column<Entity, Type>`.** Each column carries its owning entity and Rust type as compile-time markers. The entity keeps column references and join keys type-checked; the Rust type gates operators (ordering only on orderable types, `LIKE` only on strings) and drives value binding.
+- **DX over maximal type-state.** Type-safety is enforced where it matters, but operators live as inherent methods so mistakes surface as plain "method not found" / "trait bound not satisfied" errors rather than Diesel-style walls.
 
 ## Workspace
 

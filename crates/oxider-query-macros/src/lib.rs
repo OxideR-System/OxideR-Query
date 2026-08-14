@@ -1,15 +1,15 @@
 //! Derive macro generating the query metamodel for an entity struct.
 //!
-//! `#[derive(Entity)]` turns a plain struct into a queryable table by generating
-//! a companion `<Name>Table` metamodel struct whose fields are typed [`Column`]s,
-//! plus a `Name::table()` constructor and a `Table` impl.
-//!
-//! Generated code references the facade crate as `::oxider_query`, so users only
-//! need to depend on `oxider-query`.
+//! `#[derive(Entity)]` implements `Entity` for the struct and generates one
+//! associated-const `Column` per field, so queries read as `User::id`. Generated
+//! code references the facade crate as `::oxider_query`, so users only depend on
+//! `oxider-query`.
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, Fields, LitStr, Type};
+use quote::quote;
+use syn::{
+    parse_macro_input, Data, DeriveInput, Fields, GenericArgument, LitStr, PathArguments, Type,
+};
 
 /// Derive the query metamodel for a struct.
 ///
@@ -30,7 +30,6 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let ident = &input.ident;
     let table = table_name(&input)?;
-    let meta_ident = format_ident!("{}Table", ident);
 
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {
@@ -50,42 +49,30 @@ fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         }
     };
 
-    let mut field_defs = Vec::new();
-    let mut field_inits = Vec::new();
+    let mut columns = Vec::new();
     for field in fields {
         let fid = field.ident.as_ref().expect("named field");
-        let ty = &field.ty;
         let col_name = fid.to_string();
-        let nullable = is_option(ty);
-
-        field_defs.push(quote! {
-            pub #fid: ::oxider_query::Column<<#ty as ::oxider_query::HasSqlType>::Sql>
-        });
-        field_inits.push(quote! {
-            #fid: ::oxider_query::Column::new(#table, #col_name, #nullable)
+        // Nullable columns carry the inner type of `Option<T>`; the flag records
+        // nullability until type-level nullability tracking lands.
+        let (col_ty, nullable) = match option_inner(&field.ty) {
+            Some(inner) => (inner, true),
+            None => (&field.ty, false),
+        };
+        columns.push(quote! {
+            #[allow(non_upper_case_globals)]
+            pub const #fid: ::oxider_query::Column<#ident, #col_ty> =
+                ::oxider_query::Column::new(#table, #col_name, #nullable);
         });
     }
 
     Ok(quote! {
-        #[derive(Clone, Copy)]
-        #[doc = concat!("Generated query metamodel for [`", stringify!(#ident), "`].")]
-        pub struct #meta_ident {
-            #(#field_defs,)*
+        impl ::oxider_query::Entity for #ident {
+            const TABLE: &'static str = #table;
         }
 
         impl #ident {
-            /// Access the generated query metamodel for this entity.
-            pub fn table() -> #meta_ident {
-                #meta_ident {
-                    #(#field_inits,)*
-                }
-            }
-        }
-
-        impl ::oxider_query::Table for #meta_ident {
-            fn table_name(&self) -> &'static str {
-                #table
-            }
+            #(#columns)*
         }
     })
 }
@@ -113,12 +100,20 @@ fn table_name(input: &DeriveInput) -> syn::Result<String> {
     Ok(input.ident.to_string().to_lowercase())
 }
 
-/// Whether a field type is `Option<..>` (making the column nullable).
-fn is_option(ty: &Type) -> bool {
-    if let Type::Path(path) = ty {
-        if let Some(segment) = path.path.segments.last() {
-            return segment.ident == "Option";
-        }
+/// If `ty` is `Option<Inner>`, return `Inner`.
+fn option_inner(ty: &Type) -> Option<&Type> {
+    let Type::Path(path) = ty else {
+        return None;
+    };
+    let segment = path.path.segments.last()?;
+    if segment.ident != "Option" {
+        return None;
     }
-    false
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+    args.args.iter().find_map(|arg| match arg {
+        GenericArgument::Type(inner) => Some(inner),
+        _ => None,
+    })
 }

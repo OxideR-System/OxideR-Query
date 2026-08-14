@@ -1,7 +1,15 @@
 # OxideR-Query: Kiến trúc & Roadmap
 
-Status: IN PROGRESS - Phase 0, 1, 2 DONE
+Status: IN PROGRESS - Phase 0, 1, 2 DONE; Phase 1 API pivoted (Column<Entity,T>)
 Ngày: 2026-08-14
+
+## Pivot thiết kế Column (2026-08-14, sau brainstorm)
+
+Đổi `Column<Sql>` (SQL marker) -> `Column<Entity, T>` (entity + kiểu Rust thật) + associated-const API.
+Lý do: entity param cần cho join type-safe (`eq_column`) và projection type-match; kiểu Rust thật cần cho custom domain type + projection.
+API mới: `User::id` (assoc const), `User::query()` (Entity trait), thay cho `User::table().id` / `Query::select()`.
+Bổ sung: ops gate theo trait (Orderable cho lt/gt, String cho contains/like), ORDER BY / LIMIT / OFFSET, filter_opt (dynamic query).
+Đã verify: sai kiểu / sai op fail compile với message đọc được (`no method named contains`, `bool: Orderable not satisfied`, `i64: Into<String>`).
 
 ## Quyết định bổ sung (đã chốt)
 

@@ -1,8 +1,8 @@
 //! Dialect-agnostic expression AST.
 //!
 //! This is the untyped intermediate representation. Type-safety lives in the
-//! typed layer above ([`crate::expression`]); keeping the AST dynamic is what
-//! lets a single renderer target multiple dialects without duplicating logic.
+//! typed column layer above ([`crate::column`]); keeping the AST dynamic is what
+//! lets a single renderer target multiple dialects.
 
 use crate::value::Value;
 
@@ -21,6 +21,8 @@ pub enum BinOp {
     Gt,
     /// `>=`
     Ge,
+    /// `LIKE`
+    Like,
     /// `AND`
     And,
     /// `OR`
@@ -28,7 +30,7 @@ pub enum BinOp {
 }
 
 impl BinOp {
-    /// The SQL token for this operator (dialect-independent for the MVP set).
+    /// The SQL token for this operator (dialect-independent for the current set).
     pub fn as_sql(self) -> &'static str {
         match self {
             BinOp::Eq => "=",
@@ -37,6 +39,7 @@ impl BinOp {
             BinOp::Le => "<=",
             BinOp::Gt => ">",
             BinOp::Ge => ">=",
+            BinOp::Like => "LIKE",
             BinOp::And => "AND",
             BinOp::Or => "OR",
         }

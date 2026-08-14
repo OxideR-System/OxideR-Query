@@ -12,20 +12,26 @@
 //! struct User {
 //!     id: i64,
 //!     name: String,
+//!     age: i32,
 //!     email: Option<String>,
 //! }
 //!
-//! let u = User::table();
-//! let rendered = Query::select()
-//!     .from(u)
-//!     .select((u.id, u.name))
-//!     .filter(u.name.eq("Alice"))
+//! let rendered = User::query()
+//!     .select((User::id, User::name))
+//!     .filter(User::name.contains("nguyen").and(User::age.ge(18)))
+//!     .order_by(User::id.desc())
+//!     .limit(20)
 //!     .render(&Postgres);
+//! # let _ = rendered;
+//! ```
 //!
-//! assert_eq!(
-//!     rendered.sql,
-//!     r#"SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = $1)"#
-//! );
+//! Comparing a column against the wrong type is a compile error:
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "users")]
+//! # struct User { id: i64, name: String }
+//! User::name.eq(123); // error: the trait bound `i64: Into<String>` is not satisfied
 //! ```
 //!
 //! This facade re-exports the core crate and the derive macro, so downstream
@@ -37,7 +43,7 @@ pub use oxider_query_macros::Entity;
 /// Common imports for building queries.
 pub mod prelude {
     pub use oxider_query_core::{
-        Dialect, Expression, ExpressionMethods, MySql, Postgres, Query, Sqlite, Table,
+        Column, Dialect, Entity, MySql, OrderTerm, Postgres, Predicate, Sqlite, ToSqlValue,
     };
     pub use oxider_query_macros::Entity;
 }

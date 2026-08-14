@@ -2,8 +2,10 @@
 
 use crate::dialect::Dialect;
 use crate::expr::Expr;
+use crate::predicate::OrderDir;
 use crate::query::SelectQuery;
 use crate::value::Value;
+use core::fmt::Write;
 
 /// Rendered SQL alongside its ordered bound parameters.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,14 +33,38 @@ impl SelectQuery {
             sql.push_str(&cols.join(", "));
         }
 
-        if let Some(from) = self.from {
-            sql.push_str(" FROM ");
-            sql.push_str(&dialect.quote_ident(from));
-        }
+        sql.push_str(" FROM ");
+        sql.push_str(&dialect.quote_ident(self.from));
 
         if let Some(filter) = &self.filter {
             sql.push_str(" WHERE ");
             sql.push_str(&render_expr(filter, dialect, &mut params));
+        }
+
+        if !self.order.is_empty() {
+            sql.push_str(" ORDER BY ");
+            let terms: Vec<String> = self
+                .order
+                .iter()
+                .map(|t| {
+                    let expr = render_expr(&t.expr, dialect, &mut params);
+                    let dir = match t.dir {
+                        OrderDir::Asc => "ASC",
+                        OrderDir::Desc => "DESC",
+                    };
+                    format!("{expr} {dir}")
+                })
+                .collect();
+            sql.push_str(&terms.join(", "));
+        }
+
+        // LIMIT/OFFSET take non-negative integer literals, so inlining them is
+        // safe (no user-controlled string) and uniform across the target dialects.
+        if let Some(n) = self.limit {
+            let _ = write!(sql, " LIMIT {n}");
+        }
+        if let Some(m) = self.offset {
+            let _ = write!(sql, " OFFSET {m}");
         }
 
         Rendered { sql, params }
