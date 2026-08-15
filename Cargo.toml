@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/oxider-query-core",
     "crates/oxider-query-macros",
+    "crates/oxider-query-exec",
     "crates/oxider-query",
 ]
 
@@ -16,6 +17,9 @@ authors = ["OxideR System"]
 [workspace.dependencies]
 oxider-query-core = { path = "crates/oxider-query-core", version = "0.1.0" }
 oxider-query-macros = { path = "crates/oxider-query-macros", version = "0.1.0" }
+oxider-query-exec = { path = "crates/oxider-query-exec", version = "0.1.0" }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio"] }
+tokio = { version = "1", features = ["macros", "rt"] }

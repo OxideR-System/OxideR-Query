@@ -104,7 +104,7 @@ oxider-query/                  # workspace root
 | 4c | [DONE] Subquery: IN/NOT IN (type-match cột outer) + EXISTS/NOT EXISTS, uncorrelated | 4 render test, IN sai kiểu fail compile |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
-| 6 | Lớp exec + mapping row->struct, async | Chạy query thật trên DB, tích hợp sqlx |
+| 6 | [DONE - SQLite] Lớp exec `oxider-query-exec` + mapping row->struct (sqlx FromRow), async tokio. Postgres/MySQL sau theo feature | 3 test E2E in-memory SQLite (insert/select/filter/update/delete) |
 | 7 | DX polish: error message, diagnostic, docs, benchmark | Docs.rs đầy đủ, bench vs Diesel/SeaQuery |
 
 Phase 0-4 là "học + xây core vững". Phase 5-7 là "nâng lên production".

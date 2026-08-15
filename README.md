@@ -2,7 +2,7 @@
 
 Type-safe, multi-dialect SQL query builder for Rust, inspired by Java's [QueryDSL](https://github.com/querydsl/querydsl) but pushing type-safety further with Rust's type system.
 
-> Status: 0.1.0, in active development. SELECT with typed WHERE, rendering to PostgreSQL, MySQL, and SQLite. Pre-1.0, so the API tracks latest stable Rust and may change.
+> Status: 0.1.0, in active development. Type-safe SELECT (WHERE, JOIN, aggregates, GROUP BY/HAVING, subqueries), INSERT/UPDATE/DELETE, rendering to PostgreSQL, MySQL, and SQLite, plus optional async execution over sqlx. Pre-1.0, so the API tracks latest stable Rust and may change.
 
 ## What it does today
 
@@ -116,6 +116,28 @@ User::query().filter(Department::name.eq("AI"));
 
 Every query tracks its in-scope tables (the FROM entity plus each join) at the type level, so `filter`, `select`, and `order_by` only accept columns of tables that are actually in scope. `join` extends that set.
 
+## Running queries
+
+The core builder is execution-agnostic; the optional `oxider-query-exec` crate binds the rendered `(sql, params)` to [sqlx](https://github.com/launchbadge/sqlx) and runs it. Rows map into any `sqlx::FromRow` type. SQLite is implemented today (Postgres and MySQL will follow the same shape behind features):
+
+```rust
+#[derive(Entity, sqlx::FromRow)]
+#[oxider(table = "users")]
+struct User { id: i64, name: String, age: i64, active: bool }
+
+let pool = SqlitePool::connect("sqlite::memory:").await?;
+
+oxider_query_exec::execute(
+    &pool,
+    &User::insert().value(User::name, "Alice").value(User::age, 30).render(&Sqlite),
+).await?;
+
+let adults: Vec<User> = oxider_query_exec::fetch_all(
+    &pool,
+    &User::query().filter(User::age.ge(18)).order_by(User::age.asc()).render(&Sqlite),
+).await?;
+```
+
 ## Design
 
 - **Query builder, layered.** The core produces `(sql, params)` and is database-agnostic. Connection handling and row mapping are a separate, optional layer added later.
@@ -130,6 +152,7 @@ Every query tracks its in-scope tables (the FROM entity plus each join) at the t
 |-------|------|
 | `oxider-query-core` | AST, typed expression layer, builder, `Dialect` trait, renderer. No DB, no macros. |
 | `oxider-query-macros` | `#[derive(Entity)]` generating the query metamodel. |
+| `oxider-query-exec` | Optional async execution over sqlx (SQLite today). Binds params, maps rows. |
 | `oxider-query` | Facade crate that downstream users depend on. |
 
 ## Roadmap

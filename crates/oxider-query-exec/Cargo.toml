@@ -1,0 +1,21 @@
+[package]
+name = "oxider-query-exec"
+description = "Async execution layer for OxideR-Query, bridging rendered SQL to sqlx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+oxider-query-core.workspace = true
+sqlx = { workspace = true }
+
+[features]
+default = ["sqlite"]
+sqlite = ["sqlx/sqlite"]
+
+[dev-dependencies]
+oxider-query = { path = "../oxider-query", version = "0.1.0" }
+tokio = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite", "macros"] }
