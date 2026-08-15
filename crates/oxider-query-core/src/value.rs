@@ -87,3 +87,13 @@ impl Orderable for i64 {}
 impl Orderable for f32 {}
 impl Orderable for f64 {}
 impl Orderable for String {}
+
+/// Marker for numeric Rust types, gating the arithmetic aggregates `SUM` and
+/// `AVG` (which are meaningless on text or booleans).
+pub trait Numeric {}
+
+impl Numeric for i16 {}
+impl Numeric for i32 {}
+impl Numeric for i64 {}
+impl Numeric for f32 {}
+impl Numeric for f64 {}

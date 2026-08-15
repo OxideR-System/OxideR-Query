@@ -8,6 +8,7 @@
 //! here.
 #![forbid(unsafe_code)]
 
+pub mod aggregate;
 pub mod column;
 pub mod dialect;
 pub mod expr;
@@ -18,12 +19,13 @@ pub mod render;
 pub mod source;
 pub mod value;
 
+pub use aggregate::{avg, count, count_all, max, min, sum, Aggregate};
 pub use column::{Column, Entity};
 pub use dialect::{Dialect, MySql, Postgres, Sqlite};
-pub use expr::{BinOp, Expr};
+pub use expr::{AggFunc, BinOp, Expr};
 pub use join::{Join, JoinKind};
 pub use predicate::{Order, OrderDir, OrderTerm, Predicate};
-pub use query::{OnClause, Select, SelectQuery, Selection};
+pub use query::{OnClause, Select, SelectItem, SelectQuery, Selection};
 pub use render::Rendered;
 pub use source::{Cons, Nil};
-pub use value::{Orderable, ToSqlValue, Value};
+pub use value::{Numeric, Orderable, ToSqlValue, Value};

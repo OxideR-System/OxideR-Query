@@ -57,6 +57,21 @@ let rows = User::query()
 // WHERE ("departments"."name" = $1)
 ```
 
+Aggregate, group, and filter groups. `SUM`/`AVG` accept only numeric columns; `MIN`/`MAX` only orderable ones:
+
+```rust
+let rows = Order::query()
+    .select((Order::customer_id, count_all()))
+    .filter(Order::status.eq("paid"))
+    .group_by(Order::customer_id)
+    .having(count_all().gt(5))
+    .render(&Postgres);
+
+// SELECT "orders"."customer_id", COUNT(*) FROM "orders"
+// WHERE ("orders"."status" = $1)
+// GROUP BY "orders"."customer_id" HAVING (COUNT(*) > $2)
+```
+
 The same query renders to any supported dialect - the AST is built once, the dialect only changes quoting and placeholder style:
 
 | Dialect | Identifiers | Placeholders |

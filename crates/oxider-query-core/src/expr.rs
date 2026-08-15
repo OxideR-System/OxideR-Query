@@ -46,6 +46,34 @@ impl BinOp {
     }
 }
 
+/// SQL aggregate functions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggFunc {
+    /// `COUNT`
+    Count,
+    /// `SUM`
+    Sum,
+    /// `AVG`
+    Avg,
+    /// `MIN`
+    Min,
+    /// `MAX`
+    Max,
+}
+
+impl AggFunc {
+    /// The SQL function name.
+    pub fn as_sql(self) -> &'static str {
+        match self {
+            AggFunc::Count => "COUNT",
+            AggFunc::Sum => "SUM",
+            AggFunc::Avg => "AVG",
+            AggFunc::Min => "MIN",
+            AggFunc::Max => "MAX",
+        }
+    }
+}
+
 /// An untyped expression node.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -66,5 +94,12 @@ pub enum Expr {
         lhs: Box<Expr>,
         /// Right operand.
         rhs: Box<Expr>,
+    },
+    /// An aggregate function call. `arg` is `None` for `COUNT(*)`.
+    Aggregate {
+        /// The aggregate function.
+        func: AggFunc,
+        /// The aggregated expression, or `None` for `COUNT(*)`.
+        arg: Option<Box<Expr>>,
     },
 }

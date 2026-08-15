@@ -1,7 +1,13 @@
 # OxideR-Query: Kiến trúc & Roadmap
 
-Status: IN PROGRESS - Phase 0, 1, 2, 3a, 3b DONE; Phase 1 API pivoted (Column<Entity,T>)
+Status: IN PROGRESS - Phase 0, 1, 2, 3a, 3b, 4a DONE; 3c hoãn sang Phase 6
 Ngày: 2026-08-14 (cập nhật 2026-08-15)
+
+## Quyết định 3c (2026-08-15): hoãn nullability type-level sang Phase 6
+
+Nullability outer join ở tầng type chỉ quan sát được khi có tầng mapping row->struct/tuple (cột LEFT JOIN phải hiện ra là `Option<_>`).
+Với API assoc-const hiện tại (`Department::name` là global const, không mang ngữ cảnh query), ép nullability vào type sẽ tạo type machinery không có consumer -> vi phạm YAGNI + nguyên tắc "type-state chỉ ở nơi trả về giá trị thật".
+Quyết định: giữ `nullable` ở runtime trong `Column` + join kind trong `SelectQuery`; tính nullability hiệu dụng khi xây tầng mapping (Phase 6).
 
 ## Pivot thiết kế Column (2026-08-14, sau brainstorm)
 
@@ -92,8 +98,11 @@ oxider-query/                  # workspace root
 | 2 | [DONE] Trait `Dialect` tách module + Postgres/MySQL/SQLite. Khác biệt placeholder ($N vs ?) + quote (" vs `) + escaping | 3 dialect render đúng, unit test escaping |
 | 3a | [DONE] JOIN render (INNER/LEFT) + multi-entity select + eq_column join-key type-safe | 3 join test, param order đúng, mismatch key fail compile |
 | 3b | [DONE] Type-track bảng đã join (chỉ cho ref cột đã join) qua HList source-set | ref cột chưa join fail compile, compile_fail doctest |
-| 3c | Nullability outer join ở tầng type (LEFT JOIN nâng cột non-null bên phải thành nullable) | test biên nullability |
-| 4 | Đủ clause: GROUP BY, HAVING, aggregate, subquery, INSERT/UPDATE/DELETE | Coverage SQL cơ bản đầy đủ |
+| 3c | (HOÃN sang Phase 6) Nullability outer join ở tầng type - chỉ có ý nghĩa khi có tầng mapping row->struct | test biên nullability |
+| 4a | [DONE] Aggregate (COUNT/SUM/AVG/MIN/MAX) + GROUP BY + HAVING, gate Numeric/Orderable | 4 render test, sum(text) fail compile |
+| 4b | INSERT / UPDATE / DELETE builder + render | render test cho từng DML |
+| 4c | Subquery (IN / scalar) | render test subquery |
+| 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 6 | Lớp exec + mapping row->struct, async | Chạy query thật trên DB, tích hợp sqlx |
 | 7 | DX polish: error message, diagnostic, docs, benchmark | Docs.rs đầy đủ, bench vs Diesel/SeaQuery |

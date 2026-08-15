@@ -50,6 +50,21 @@ impl SelectQuery {
             sql.push_str(&render_expr(filter, dialect, &mut params));
         }
 
+        if !self.group.is_empty() {
+            sql.push_str(" GROUP BY ");
+            let cols: Vec<String> = self
+                .group
+                .iter()
+                .map(|c| render_expr(c, dialect, &mut params))
+                .collect();
+            sql.push_str(&cols.join(", "));
+        }
+
+        if let Some(having) = &self.having {
+            sql.push_str(" HAVING ");
+            sql.push_str(&render_expr(having, dialect, &mut params));
+        }
+
         if !self.order.is_empty() {
             sql.push_str(" ORDER BY ");
             let terms: Vec<String> = self
@@ -98,6 +113,13 @@ fn render_expr<D: Dialect>(expr: &Expr, dialect: &D, params: &mut Vec<Value>) ->
             let l = render_expr(lhs, dialect, params);
             let r = render_expr(rhs, dialect, params);
             format!("({} {} {})", l, op.as_sql(), r)
+        }
+        Expr::Aggregate { func, arg } => {
+            let inner = match arg {
+                Some(expr) => render_expr(expr, dialect, params),
+                None => "*".to_string(),
+            };
+            format!("{}({})", func.as_sql(), inner)
         }
     }
 }

@@ -13,7 +13,7 @@ use crate::expr::{BinOp, Expr};
 use crate::join::{Join, JoinKind};
 use crate::predicate::{Order, OrderTerm, Predicate};
 use crate::render::Rendered;
-use crate::source::{Cons, ContainsAll, Nil};
+use crate::source::{Concat, Cons, ContainsAll, Nil};
 use core::marker::PhantomData;
 
 /// A built SELECT query in dialect-agnostic form. Render with
@@ -27,6 +27,10 @@ pub struct SelectQuery {
     pub columns: Vec<Expr>,
     /// WHERE predicate, if any.
     pub filter: Option<Expr>,
+    /// GROUP BY expressions, in order.
+    pub group: Vec<Expr>,
+    /// HAVING predicate, if any.
+    pub having: Option<Expr>,
     /// ORDER BY terms, in order.
     pub order: Vec<OrderTerm>,
     /// LIMIT, if any.
@@ -42,6 +46,8 @@ pub struct Select<S> {
     joins: Vec<Join>,
     columns: Vec<Expr>,
     filter: Option<Expr>,
+    group: Vec<Expr>,
+    having: Option<Expr>,
     order: Vec<OrderTerm>,
     limit: Option<u64>,
     offset: Option<u64>,
@@ -57,6 +63,8 @@ impl<S> Select<S> {
             joins: Vec::new(),
             columns: Vec::new(),
             filter: None,
+            group: Vec::new(),
+            having: None,
             order: Vec::new(),
             limit: None,
             offset: None,
@@ -72,6 +80,8 @@ impl<S> Select<S> {
             joins: self.joins,
             columns: self.columns,
             filter: self.filter,
+            group: self.group,
+            having: self.having,
             order: self.order,
             limit: self.limit,
             offset: self.offset,
@@ -133,6 +143,36 @@ impl<S> Select<S> {
         self
     }
 
+    /// Set the GROUP BY expressions. Accepts a single [`Column`] or a tuple.
+    ///
+    /// Every grouped entity must be in scope (`S`).
+    pub fn group_by<Sel, Idxs>(mut self, selection: Sel) -> Self
+    where
+        Sel: Selection,
+        S: ContainsAll<Sel::Sources, Idxs>,
+    {
+        self.group = selection.into_exprs();
+        self
+    }
+
+    /// Add a HAVING predicate, filtering grouped rows. Multiple calls combine
+    /// with `AND`. Typically built from aggregate comparisons, e.g.
+    /// `count_all().gt(5)`.
+    pub fn having<S2, Idxs>(mut self, predicate: Predicate<S2>) -> Self
+    where
+        S: ContainsAll<S2, Idxs>,
+    {
+        self.having = Some(match self.having.take() {
+            Some(prev) => Expr::Binary {
+                op: BinOp::And,
+                lhs: Box::new(prev),
+                rhs: Box::new(predicate.into_expr()),
+            },
+            None => predicate.into_expr(),
+        });
+        self
+    }
+
     /// Append an ORDER BY term. The ordered entity must be in scope (`S`).
     pub fn order_by<S2, Idxs>(mut self, term: Order<S2>) -> Self
     where
@@ -161,6 +201,8 @@ impl<S> Select<S> {
             joins: self.joins,
             columns: self.columns,
             filter: self.filter,
+            group: self.group,
+            having: self.having,
             order: self.order,
             limit: self.limit,
             offset: self.offset,
@@ -198,8 +240,28 @@ impl<S> OnClause for Predicate<S> {
     }
 }
 
-/// Column(s) usable in a SELECT list, carrying the entities they reference as a
+/// A single item usable in a SELECT or GROUP BY list: a [`Column`] or an
+/// [`Aggregate`](crate::Aggregate). Carries the entities it references as a
 /// type-level source set.
+pub trait SelectItem {
+    /// The set of entities this item references.
+    type Sources;
+    /// Lower the item into an AST expression.
+    fn into_select_expr(self) -> Expr;
+}
+
+impl<E, T> SelectItem for Column<E, T> {
+    type Sources = Cons<E, Nil>;
+    fn into_select_expr(self) -> Expr {
+        Expr::Column {
+            table: self.table,
+            name: self.name,
+        }
+    }
+}
+
+/// One or more items usable in a SELECT or GROUP BY list, carrying the union of
+/// the entities they reference as a type-level source set.
 pub trait Selection {
     /// The set of entities this selection references.
     type Sources;
@@ -207,35 +269,124 @@ pub trait Selection {
     fn into_exprs(self) -> Vec<Expr>;
 }
 
-impl<E, T> Selection for Column<E, T> {
-    type Sources = Cons<E, Nil>;
+/// A single item is a selection of one.
+impl<I: SelectItem> Selection for I {
+    type Sources = I::Sources;
     fn into_exprs(self) -> Vec<Expr> {
-        vec![Expr::Column {
-            table: self.table,
-            name: self.name,
-        }]
+        vec![self.into_select_expr()]
     }
 }
 
-/// Build a cons-list type from a list of entity idents.
-macro_rules! cons_ty {
-    () => { Nil };
-    ($head:ident $(, $rest:ident)*) => { Cons<$head, cons_ty!($($rest),*)> };
+// Tuple selections concatenate their elements' source sets (right-folded via
+// `Concat`). Written out per arity because the nested associated-type bounds
+// cannot be produced by a simple declarative macro.
+
+impl<A: SelectItem, B: SelectItem> Selection for (A, B)
+where
+    A::Sources: Concat<B::Sources>,
+{
+    type Sources = <A::Sources as Concat<B::Sources>>::Out;
+    fn into_exprs(self) -> Vec<Expr> {
+        vec![self.0.into_select_expr(), self.1.into_select_expr()]
+    }
 }
 
-macro_rules! selection_tuple {
-    ($($e:ident $t:ident $idx:tt),+) => {
-        impl<$($e, $t),+> Selection for ($(Column<$e, $t>,)+) {
-            type Sources = cons_ty!($($e),+);
-            fn into_exprs(self) -> Vec<Expr> {
-                vec![$(Expr::Column { table: self.$idx.table, name: self.$idx.name }),+]
-            }
-        }
-    };
+impl<A: SelectItem, B: SelectItem, C: SelectItem> Selection for (A, B, C)
+where
+    B::Sources: Concat<C::Sources>,
+    A::Sources: Concat<<B::Sources as Concat<C::Sources>>::Out>,
+{
+    type Sources = <A::Sources as Concat<<B::Sources as Concat<C::Sources>>::Out>>::Out;
+    fn into_exprs(self) -> Vec<Expr> {
+        vec![
+            self.0.into_select_expr(),
+            self.1.into_select_expr(),
+            self.2.into_select_expr(),
+        ]
+    }
 }
 
-selection_tuple!(Ea Ta 0, Eb Tb 1);
-selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2);
-selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2, Ed Td 3);
-selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2, Ed Td 3, Ee Te 4);
-selection_tuple!(Ea Ta 0, Eb Tb 1, Ec Tc 2, Ed Td 3, Ee Te 4, Ef Tf 5);
+impl<A: SelectItem, B: SelectItem, C: SelectItem, D: SelectItem> Selection for (A, B, C, D)
+where
+    C::Sources: Concat<D::Sources>,
+    B::Sources: Concat<<C::Sources as Concat<D::Sources>>::Out>,
+    A::Sources: Concat<<B::Sources as Concat<<C::Sources as Concat<D::Sources>>::Out>>::Out>,
+{
+    type Sources = <A::Sources as Concat<
+        <B::Sources as Concat<<C::Sources as Concat<D::Sources>>::Out>>::Out,
+    >>::Out;
+    fn into_exprs(self) -> Vec<Expr> {
+        vec![
+            self.0.into_select_expr(),
+            self.1.into_select_expr(),
+            self.2.into_select_expr(),
+            self.3.into_select_expr(),
+        ]
+    }
+}
+
+impl<A: SelectItem, B: SelectItem, C: SelectItem, D: SelectItem, E: SelectItem> Selection
+    for (A, B, C, D, E)
+where
+    D::Sources: Concat<E::Sources>,
+    C::Sources: Concat<<D::Sources as Concat<E::Sources>>::Out>,
+    B::Sources: Concat<<C::Sources as Concat<<D::Sources as Concat<E::Sources>>::Out>>::Out>,
+    A::Sources: Concat<
+        <B::Sources as Concat<
+            <C::Sources as Concat<<D::Sources as Concat<E::Sources>>::Out>>::Out,
+        >>::Out,
+    >,
+{
+    type Sources = <A::Sources as Concat<
+        <B::Sources as Concat<
+            <C::Sources as Concat<<D::Sources as Concat<E::Sources>>::Out>>::Out,
+        >>::Out,
+    >>::Out;
+    fn into_exprs(self) -> Vec<Expr> {
+        vec![
+            self.0.into_select_expr(),
+            self.1.into_select_expr(),
+            self.2.into_select_expr(),
+            self.3.into_select_expr(),
+            self.4.into_select_expr(),
+        ]
+    }
+}
+
+impl<A: SelectItem, B: SelectItem, C: SelectItem, D: SelectItem, E: SelectItem, F: SelectItem>
+    Selection for (A, B, C, D, E, F)
+where
+    E::Sources: Concat<F::Sources>,
+    D::Sources: Concat<<E::Sources as Concat<F::Sources>>::Out>,
+    C::Sources: Concat<<D::Sources as Concat<<E::Sources as Concat<F::Sources>>::Out>>::Out>,
+    B::Sources: Concat<
+        <C::Sources as Concat<
+            <D::Sources as Concat<<E::Sources as Concat<F::Sources>>::Out>>::Out,
+        >>::Out,
+    >,
+    A::Sources: Concat<
+        <B::Sources as Concat<
+            <C::Sources as Concat<
+                <D::Sources as Concat<<E::Sources as Concat<F::Sources>>::Out>>::Out,
+            >>::Out,
+        >>::Out,
+    >,
+{
+    type Sources = <A::Sources as Concat<
+        <B::Sources as Concat<
+            <C::Sources as Concat<
+                <D::Sources as Concat<<E::Sources as Concat<F::Sources>>::Out>>::Out,
+            >>::Out,
+        >>::Out,
+    >>::Out;
+    fn into_exprs(self) -> Vec<Expr> {
+        vec![
+            self.0.into_select_expr(),
+            self.1.into_select_expr(),
+            self.2.into_select_expr(),
+            self.3.into_select_expr(),
+            self.4.into_select_expr(),
+            self.5.into_select_expr(),
+        ]
+    }
+}

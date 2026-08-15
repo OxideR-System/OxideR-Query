@@ -47,6 +47,15 @@
 //! User::query().filter(Department::name.eq("AI"));
 //! ```
 //!
+//! Aggregates are gated too: `SUM`/`AVG` only accept numeric columns.
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "orders")]
+//! # struct Order { id: i64, status: String }
+//! sum(Order::status); // error: the trait bound `String: Numeric` is not satisfied
+//! ```
+//!
 //! This facade re-exports the core crate and the derive macro, so downstream
 //! crates only depend on `oxider-query`.
 
@@ -56,7 +65,8 @@ pub use oxider_query_macros::Entity;
 /// Common imports for building queries.
 pub mod prelude {
     pub use oxider_query_core::{
-        Column, Dialect, Entity, MySql, OrderTerm, Postgres, Predicate, Sqlite, ToSqlValue,
+        avg, count, count_all, max, min, sum, Column, Dialect, Entity, MySql, OrderTerm, Postgres,
+        Predicate, Sqlite, ToSqlValue,
     };
     pub use oxider_query_macros::Entity;
 }
