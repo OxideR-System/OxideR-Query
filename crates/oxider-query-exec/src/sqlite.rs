@@ -1,14 +1,13 @@
-//! SQLite execution backend.
-//!
-//! Takes any [`Renderable`] query, renders it with the SQLite dialect, binds its
-//! parameters onto a sqlx SQLite query and runs it. Because the dialect is chosen
-//! here from the connected database, call sites never spell `.render(&Sqlite)`.
-//! `fetch_*` map rows into a `FromRow` type; `execute` runs a statement and
-//! returns the affected row count.
+//! SQLite backend: renders with the SQLite dialect and binds parameters onto
+//! sqlx SQLite queries. All the encoding lives here, where the database type is
+//! concrete, so [`Db`](crate::Db) stays backend-agnostic.
 
-use oxider_query_core::{Renderable, Sqlite as SqliteDialect, Value};
-use sqlx::sqlite::SqliteRow;
-use sqlx::{Executor, FromRow, Sqlite};
+use crate::Backend;
+use oxider_query_core::Sqlite as SqliteDialect;
+use oxider_query_core::Value;
+use sqlx::query::{Query, QueryAs};
+use sqlx::sqlite::{SqliteArguments, SqliteQueryResult};
+use sqlx::Sqlite;
 
 /// Bind a rendered statement's parameters onto a sqlx query, in order.
 ///
@@ -30,50 +29,24 @@ macro_rules! bind_params {
     }};
 }
 
-/// Run a statement (typically INSERT/UPDATE/DELETE) and return the number of
-/// affected rows.
-pub async fn execute<'e, E, Q>(executor: E, query: Q) -> Result<u64, sqlx::Error>
-where
-    E: Executor<'e, Database = Sqlite>,
-    Q: Renderable,
-{
-    let rendered = query.render_with(&SqliteDialect);
-    let bound = bind_params!(sqlx::query::<Sqlite>(&rendered.sql), &rendered.params);
-    Ok(bound.execute(executor).await?.rows_affected())
-}
+impl Backend for Sqlite {
+    type Dialect = SqliteDialect;
 
-/// Run a query and collect every row into `O`.
-pub async fn fetch_all<'e, E, O, Q>(executor: E, query: Q) -> Result<Vec<O>, sqlx::Error>
-where
-    E: Executor<'e, Database = Sqlite>,
-    O: for<'r> FromRow<'r, SqliteRow> + Send + Unpin,
-    Q: Renderable,
-{
-    let rendered = query.render_with(&SqliteDialect);
-    let bound = bind_params!(sqlx::query_as::<Sqlite, O>(&rendered.sql), &rendered.params);
-    bound.fetch_all(executor).await
-}
+    fn bind<'q>(
+        query: Query<'q, Sqlite, SqliteArguments<'q>>,
+        params: &'q [Value],
+    ) -> Query<'q, Sqlite, SqliteArguments<'q>> {
+        bind_params!(query, params)
+    }
 
-/// Run a query expected to return exactly one row.
-pub async fn fetch_one<'e, E, O, Q>(executor: E, query: Q) -> Result<O, sqlx::Error>
-where
-    E: Executor<'e, Database = Sqlite>,
-    O: for<'r> FromRow<'r, SqliteRow> + Send + Unpin,
-    Q: Renderable,
-{
-    let rendered = query.render_with(&SqliteDialect);
-    let bound = bind_params!(sqlx::query_as::<Sqlite, O>(&rendered.sql), &rendered.params);
-    bound.fetch_one(executor).await
-}
+    fn bind_as<'q, O>(
+        query: QueryAs<'q, Sqlite, O, SqliteArguments<'q>>,
+        params: &'q [Value],
+    ) -> QueryAs<'q, Sqlite, O, SqliteArguments<'q>> {
+        bind_params!(query, params)
+    }
 
-/// Run a query that may return zero or one row.
-pub async fn fetch_optional<'e, E, O, Q>(executor: E, query: Q) -> Result<Option<O>, sqlx::Error>
-where
-    E: Executor<'e, Database = Sqlite>,
-    O: for<'r> FromRow<'r, SqliteRow> + Send + Unpin,
-    Q: Renderable,
-{
-    let rendered = query.render_with(&SqliteDialect);
-    let bound = bind_params!(sqlx::query_as::<Sqlite, O>(&rendered.sql), &rendered.params);
-    bound.fetch_optional(executor).await
+    fn rows_affected(result: SqliteQueryResult) -> u64 {
+        result.rows_affected()
+    }
 }

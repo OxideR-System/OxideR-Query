@@ -100,7 +100,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 ```rust
 use oxider_query::prelude::*;
-use sqlx::SqlitePool;
+use oxider_query_exec::SqliteDb;
 
 #[derive(Entity, sqlx::FromRow)]
 #[oxider(table = "users")]
@@ -113,24 +113,22 @@ struct User {
 
 #[tokio::main]
 async fn main() -> Result<(), sqlx::Error> {
-    let pool = SqlitePool::connect("sqlite::memory:").await?;
+    // Một handle Db duy nhất, tự biết dialect theo backend.
+    let db = SqliteDb::connect("sqlite::memory:").await?;
     sqlx::query("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, active BOOLEAN)")
-        .execute(&pool)
+        .execute(db.pool())
         .await?;
 
-    // INSERT - chú ý không có .render(&Sqlite): pool tự chọn dialect.
-    oxider_query_exec::execute(
-        &pool,
+    // INSERT - không có .render(&Sqlite): handle tự chọn dialect.
+    db.execute(
         User::insert().value(User::name, "Alice").value(User::age, 30).value(User::active, true),
     )
     .await?;
 
     // SELECT + map row -> struct
-    let adults: Vec<User> = oxider_query_exec::fetch_all(
-        &pool,
-        User::query().filter(User::age.ge(18)).order_by(User::age.asc()),
-    )
-    .await?;
+    let adults: Vec<User> = db
+        .fetch_all(User::query().filter(User::age.ge(18)).order_by(User::age.asc()))
+        .await?;
 
     println!("{} người lớn", adults.len());
     Ok(())

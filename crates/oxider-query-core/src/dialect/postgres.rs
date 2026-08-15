@@ -3,6 +3,7 @@
 use super::Dialect;
 
 /// PostgreSQL: double-quoted identifiers, numbered `$N` placeholders.
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Postgres;
 
 impl Dialect for Postgres {

@@ -87,15 +87,18 @@ Aggregate dùng trong `.select(...)` và `.having(...)`; có `eq/ne/gt/ge/lt/le`
 
 ## 8.8. Thực thi (`oxider-query-exec`, feature `sqlite`)
 
-| Hàm | Trả về |
-|-----|--------|
-| `execute(exec, query)` | `u64` số dòng ảnh hưởng |
-| `fetch_all(exec, query)` | `Vec<O>` |
-| `fetch_one(exec, query)` | `O` |
-| `fetch_optional(exec, query)` | `Option<O>` |
+Một handle `Db` cho mọi backend (`SqliteDb = Db<Sqlite>` hôm nay). Tạo bằng `Db::connect(url)` hoặc `Db::new(pool)`.
 
-`query: Renderable` (`Select`/`Insert`/`Update`/`Delete`/`Rendered`) - truyền thẳng, không cần `.render(&...)`; lớp exec tự render theo dialect của DB.
-`O: sqlx::FromRow`; `exec` là executor sqlx (pool/connection/transaction).
+| Method | Trả về |
+|--------|--------|
+| `db.execute(query)` | `u64` số dòng ảnh hưởng |
+| `db.fetch_all(query)` | `Vec<O>` |
+| `db.fetch_one(query)` | `O` |
+| `db.fetch_optional(query)` | `Option<O>` |
+| `db.pool()` | `&Pool` sqlx bên dưới |
+
+`query: Renderable` (`Select`/`Insert`/`Update`/`Delete`/`Rendered`) - truyền thẳng, không cần `.render(&...)`; `Db` tự render theo dialect của backend.
+`O: sqlx::FromRow`. Thêm backend = impl trait `Backend` cho sqlx `Database` tương ứng.
 
 ## 8.9. Codegen (`oxider-query-codegen`, feature `sqlite`)
 

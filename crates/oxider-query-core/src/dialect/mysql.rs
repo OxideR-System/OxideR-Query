@@ -3,6 +3,7 @@
 use super::Dialect;
 
 /// MySQL: backtick-quoted identifiers, positional `?` placeholders.
+#[derive(Debug, Default, Clone, Copy)]
 pub struct MySql;
 
 impl Dialect for MySql {

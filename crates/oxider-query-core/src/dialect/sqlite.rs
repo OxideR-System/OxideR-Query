@@ -3,6 +3,7 @@
 use super::Dialect;
 
 /// SQLite: double-quoted identifiers, positional `?` placeholders.
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Sqlite;
 
 impl Dialect for Sqlite {

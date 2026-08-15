@@ -118,24 +118,20 @@ Every query tracks its in-scope tables (the FROM entity plus each join) at the t
 
 ## Running queries
 
-The core builder is execution-agnostic; the optional `oxider-query-exec` crate takes a query, renders it with the connected database's dialect, and runs it over [sqlx](https://github.com/launchbadge/sqlx). Rows map into any `sqlx::FromRow` type. The dialect is chosen from the pool, so call sites pass the query directly - no `.render(&Sqlite)` - and switching databases never touches query code. SQLite is implemented today (Postgres and MySQL will follow the same shape behind features):
+The core builder is execution-agnostic; the optional `oxider-query-exec` crate provides one `Db` handle that wraps a sqlx pool for any backend, takes a query, renders it with the backend's dialect, and runs it over [sqlx](https://github.com/launchbadge/sqlx). Rows map into any `sqlx::FromRow` type. The dialect is chosen from the handle, so call sites pass the query directly - no `.render(&Sqlite)` - and switching databases is a one-line change of the handle's type, touching no query code. SQLite is implemented today (Postgres and MySQL will follow the same shape behind features):
 
 ```rust
 #[derive(Entity, sqlx::FromRow)]
 #[oxider(table = "users")]
 struct User { id: i64, name: String, age: i64, active: bool }
 
-let pool = SqlitePool::connect("sqlite::memory:").await?;
+let db = SqliteDb::connect("sqlite::memory:").await?;
 
-oxider_query_exec::execute(
-    &pool,
-    User::insert().value(User::name, "Alice").value(User::age, 30),
-).await?;
+db.execute(User::insert().value(User::name, "Alice").value(User::age, 30)).await?;
 
-let adults: Vec<User> = oxider_query_exec::fetch_all(
-    &pool,
-    User::query().filter(User::age.ge(18)).order_by(User::age.asc()),
-).await?;
+let adults: Vec<User> = db
+    .fetch_all(User::query().filter(User::age.ge(18)).order_by(User::age.asc()))
+    .await?;
 ```
 
 ## Design

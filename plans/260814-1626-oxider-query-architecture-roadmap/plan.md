@@ -9,6 +9,14 @@ Nullability outer join ở tầng type chỉ quan sát được khi có tầng m
 Với API assoc-const hiện tại (`Department::name` là global const, không mang ngữ cảnh query), ép nullability vào type sẽ tạo type machinery không có consumer -> vi phạm YAGNI + nguyên tắc "type-state chỉ ở nơi trả về giá trị thật".
 Quyết định: giữ `nullable` ở runtime trong `Column` + join kind trong `SelectQuery`; tính nullability hiệu dụng khi xây tầng mapping (Phase 6).
 
+## Quyết định exec: handle `Db` tự giữ dialect (2026-08-15)
+
+Thay vì hàm tự do nhận `&Rendered` (buộc call site gọi `.render(&Sqlite)`), lớp exec expose một handle `Db<DB>` generic trên backend.
+Core thêm trait `Renderable` (impl cho `Select`/`SelectQuery`/`Insert`/`Update`/`Delete`/`Rendered`); `Db` nhận thẳng query, tự render theo dialect của backend.
+`Backend` trait ánh xạ sqlx `Database` -> dialect (assoc `Dialect: Default`) + bind param + rows_affected; encode concern nằm trong impl từng backend nên `Db` backend-agnostic.
+Hôm nay chỉ impl `Backend for sqlx::Sqlite` (alias `SqliteDb`); thêm Postgres/MySQL = thêm một impl, không đụng `Db`.
+Lợi ích: đổi DB = đổi kiểu handle, không sửa dòng query nào; không rải `.render(&dialect)` khắp code; một API duy nhất thay vì mỗi backend một bộ hàm (tránh name clash ở crate root).
+
 ## Pivot thiết kế Column (2026-08-14, sau brainstorm)
 
 Đổi `Column<Sql>` (SQL marker) -> `Column<Entity, T>` (entity + kiểu Rust thật) + associated-const API.
