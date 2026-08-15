@@ -20,6 +20,22 @@ User::query()        // Select<Cons<User, Nil>>  -- FROM "users"
 Mọi phương thức nhận `self` và trả về builder mới, nên nối chuỗi thoải mái.
 Ngoài `render`, còn `build()` trả về AST `SelectQuery` nếu bạn muốn tự xử lý.
 
+### Về thứ tự đọc so với SQL
+
+Query bắt đầu từ `User::query()` (tức FROM), khác với SQL viết `SELECT` trước.
+Đây là ràng buộc cần thiết cho type-safety: phải có bảng trong scope trước thì `User::id` mới tồn tại để compiler kiểm tra và gợi ý.
+Cùng lý do đó, QueryDSL (Java), LINQ (C#) và Diesel (Rust) đều đặt nguồn dữ liệu trước.
+Ngoài ra thứ tự `from -> where -> select` khớp đúng thứ tự SQL *xử lý* thật (FROM chạy trước SELECT), chỉ khác thứ tự SQL *viết ra*.
+
+Builder không ép thứ tự các mệnh đề còn lại, nên nếu muốn đọc gần SQL hơn, cứ đặt `select` ngay sau `query`:
+
+```rust
+User::query().select((User::id, User::name)).filter(User::age.ge(18));
+//  từ users,      chọn id, name,             lọc age >= 18
+```
+
+`filter` mang tên vậy vì `where` là từ khóa Rust, không đặt được làm tên method; `filter` cũng là quy ước idiomatic giống iterator.
+
 ## 3.2. Chọn cột (projection)
 
 Không gọi `select` thì projection mặc định là `SELECT *`.
