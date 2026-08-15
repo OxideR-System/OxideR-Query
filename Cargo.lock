@@ -517,6 +517,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxider-query-codegen"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "oxider-query-core"
 version = "0.1.0"
 

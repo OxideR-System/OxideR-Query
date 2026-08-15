@@ -140,7 +140,8 @@ let adults: Vec<User> = oxider_query_exec::fetch_all(
 
 ## Design
 
-- **Query builder, layered.** The core produces `(sql, params)` and is database-agnostic. Connection handling and row mapping are a separate, optional layer added later.
+- **Two ways to a metamodel.** Hand-write structs and `#[derive(Entity)]`, or point `oxider-query-codegen` at an existing database to generate those structs from its schema. Both produce the same `Entity` shape.
+- **Query builder, layered.** The core produces `(sql, params)` and is database-agnostic. Connection handling and row mapping live in the separate, optional `oxider-query-exec` crate.
 - **AST separated from rendering.** Queries build a dialect-agnostic AST; `render(&dialect)` emits dialect-specific SQL. This is the key to multi-dialect support without duplicating logic.
 - **`Column<Entity, Type>`.** Each column carries its owning entity and Rust type as compile-time markers. The entity keeps column references and join keys type-checked; the Rust type gates operators (ordering only on orderable types, `LIKE` only on strings) and drives value binding.
 - **Type-level table sets.** `Select<S>` tracks the in-scope entities as a type-level list; predicates and orderings carry the entities they reference, and clause methods require those to be in scope. Referencing a non-joined table fails to compile.
@@ -153,6 +154,7 @@ let adults: Vec<User> = oxider_query_exec::fetch_all(
 | `oxider-query-core` | AST, typed expression layer, builder, `Dialect` trait, renderer. No DB, no macros. |
 | `oxider-query-macros` | `#[derive(Entity)]` generating the query metamodel. |
 | `oxider-query-exec` | Optional async execution over sqlx (SQLite today). Binds params, maps rows. |
+| `oxider-query-codegen` | Optional schema introspection: generate `Entity` structs from an existing database (SQLite today). |
 | `oxider-query` | Facade crate that downstream users depend on. |
 
 ## Roadmap

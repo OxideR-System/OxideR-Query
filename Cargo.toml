@@ -4,6 +4,7 @@ members = [
     "crates/oxider-query-core",
     "crates/oxider-query-macros",
     "crates/oxider-query-exec",
+    "crates/oxider-query-codegen",
     "crates/oxider-query",
 ]
 

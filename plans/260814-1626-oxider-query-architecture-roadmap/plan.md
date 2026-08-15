@@ -1,6 +1,6 @@
 # OxideR-Query: Kiến trúc & Roadmap
 
-Status: IN PROGRESS - Phase 0-2, 3a, 3b, 4a, 4b, 4c DONE; 3c hoãn sang Phase 6; còn 5, 6, 7
+Status: IN PROGRESS - Phase 0-6 DONE (exec/codegen: SQLite); 3c hoãn sang Phase 6; còn Phase 7 (docs + bench)
 Ngày: 2026-08-14 (cập nhật 2026-08-15)
 
 ## Quyết định 3c (2026-08-15): hoãn nullability type-level sang Phase 6
@@ -102,10 +102,9 @@ oxider-query/                  # workspace root
 | 4a | [DONE] Aggregate (COUNT/SUM/AVG/MIN/MAX) + GROUP BY + HAVING, gate Numeric/Orderable | 4 render test, sum(text) fail compile |
 | 4b | [DONE] INSERT / UPDATE / DELETE builder + render, single-table type-safe | 5 render test, set cột sai entity fail compile |
 | 4c | [DONE] Subquery: IN/NOT IN (type-match cột outer) + EXISTS/NOT EXISTS, uncorrelated | 4 render test, IN sai kiểu fail compile |
-| 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
-| 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
+| 5 | [DONE - SQLite] Codegen introspect DB schema `oxider-query-codegen` (sqlite_master + PRAGMA table_info -> struct, PK/nullable) | 1 test E2E introspect in-memory SQLite ra source đúng |
 | 6 | [DONE - SQLite] Lớp exec `oxider-query-exec` + mapping row->struct (sqlx FromRow), async tokio. Postgres/MySQL sau theo feature | 3 test E2E in-memory SQLite (insert/select/filter/update/delete) |
-| 7 | DX polish: error message, diagnostic, docs, benchmark | Docs.rs đầy đủ, bench vs Diesel/SeaQuery |
+| 7 | DX polish: docs + render-throughput bench (criterion, không so sánh cross-lib) | Docs.rs đầy đủ, bench render |
 
 Phase 0-4 là "học + xây core vững". Phase 5-7 là "nâng lên production".
 
