@@ -25,6 +25,59 @@ impl SelectQuery {
     }
 }
 
+/// Anything that can be finalized into a [`Rendered`] statement for a dialect.
+///
+/// Implemented by the query builder ([`Select`](crate::query::Select)), the AST
+/// ([`SelectQuery`]), the mutation builders ([`Insert`](crate::mutation::Insert) /
+/// [`Update`](crate::mutation::Update) / [`Delete`](crate::mutation::Delete)), and
+/// [`Rendered`] itself (which ignores the dialect, being already rendered).
+///
+/// The execution layer takes `impl Renderable` rather than a pre-rendered
+/// statement, so a call site passes a query directly and the connected database
+/// picks the dialect. Queries stay dialect-agnostic; no `.render(&Dialect)` is
+/// spelled at each call site, so switching databases does not touch query code.
+pub trait Renderable {
+    /// Render into SQL text plus ordered bound parameters for `dialect`.
+    fn render_with<D: Dialect>(self, dialect: &D) -> Rendered;
+}
+
+impl<S> Renderable for crate::query::Select<S> {
+    fn render_with<D: Dialect>(self, dialect: &D) -> Rendered {
+        self.render(dialect)
+    }
+}
+
+impl Renderable for SelectQuery {
+    fn render_with<D: Dialect>(self, dialect: &D) -> Rendered {
+        self.render(dialect)
+    }
+}
+
+impl<E> Renderable for crate::mutation::Insert<E> {
+    fn render_with<D: Dialect>(self, dialect: &D) -> Rendered {
+        self.render(dialect)
+    }
+}
+
+impl<E> Renderable for crate::mutation::Update<E> {
+    fn render_with<D: Dialect>(self, dialect: &D) -> Rendered {
+        self.render(dialect)
+    }
+}
+
+impl<E> Renderable for crate::mutation::Delete<E> {
+    fn render_with<D: Dialect>(self, dialect: &D) -> Rendered {
+        self.render(dialect)
+    }
+}
+
+impl Renderable for Rendered {
+    /// Already rendered: the dialect is ignored and the statement returned as is.
+    fn render_with<D: Dialect>(self, _dialect: &D) -> Rendered {
+        self
+    }
+}
+
 /// Render a SELECT into SQL text, appending its bound values to `params`. Shared
 /// by the top-level [`SelectQuery::render`] and by subquery expressions so that
 /// placeholders stay in a single global order.

@@ -118,17 +118,17 @@ async fn main() -> Result<(), sqlx::Error> {
         .execute(&pool)
         .await?;
 
-    // INSERT
+    // INSERT - chú ý không có .render(&Sqlite): pool tự chọn dialect.
     oxider_query_exec::execute(
         &pool,
-        &User::insert().value(User::name, "Alice").value(User::age, 30).value(User::active, true).render(&Sqlite),
+        User::insert().value(User::name, "Alice").value(User::age, 30).value(User::active, true),
     )
     .await?;
 
     // SELECT + map row -> struct
     let adults: Vec<User> = oxider_query_exec::fetch_all(
         &pool,
-        &User::query().filter(User::age.ge(18)).order_by(User::age.asc()).render(&Sqlite),
+        User::query().filter(User::age.ge(18)).order_by(User::age.asc()),
     )
     .await?;
 

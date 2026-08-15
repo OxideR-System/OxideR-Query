@@ -89,11 +89,12 @@ Aggregate dùng trong `.select(...)` và `.having(...)`; có `eq/ne/gt/ge/lt/le`
 
 | Hàm | Trả về |
 |-----|--------|
-| `execute(exec, &rendered)` | `u64` số dòng ảnh hưởng |
-| `fetch_all(exec, &rendered)` | `Vec<O>` |
-| `fetch_one(exec, &rendered)` | `O` |
-| `fetch_optional(exec, &rendered)` | `Option<O>` |
+| `execute(exec, query)` | `u64` số dòng ảnh hưởng |
+| `fetch_all(exec, query)` | `Vec<O>` |
+| `fetch_one(exec, query)` | `O` |
+| `fetch_optional(exec, query)` | `Option<O>` |
 
+`query: Renderable` (`Select`/`Insert`/`Update`/`Delete`/`Rendered`) - truyền thẳng, không cần `.render(&...)`; lớp exec tự render theo dialect của DB.
 `O: sqlx::FromRow`; `exec` là executor sqlx (pool/connection/transaction).
 
 ## 8.9. Codegen (`oxider-query-codegen`, feature `sqlite`)
@@ -109,5 +110,6 @@ Aggregate dùng trong `.select(...)` và `.having(...)`; có `eq/ne/gt/ge/lt/le`
 | `ToSqlValue` | bind được thành `Value` | số, `bool`, `String`, `&str`, `Option<T>` |
 | `Orderable` | so sánh thứ tự + ORDER BY + MIN/MAX | số, `String` |
 | `Numeric` | SUM/AVG | chỉ số |
+| `Renderable` | render được thành `Rendered` (lớp exec nhận vào) | `Select`, `SelectQuery`, `Insert`, `Update`, `Delete`, `Rendered` |
 
 Impl các trait này cho kiểu domain riêng để dùng chúng làm kiểu cột.

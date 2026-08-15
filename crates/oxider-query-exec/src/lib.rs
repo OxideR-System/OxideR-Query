@@ -1,11 +1,15 @@
-//! `oxider-query-exec`: async execution layer bridging OxideR-Query's rendered
-//! SQL to [`sqlx`].
+//! `oxider-query-exec`: async execution layer bridging OxideR-Query queries to
+//! [`sqlx`].
 //!
-//! The query builder in `oxider-query-core` produces a
-//! [`Rendered`](oxider_query_core::Rendered) `(sql, params)` pair. This crate
-//! binds those parameters and runs the statement on a
-//! sqlx connection or pool, mapping result rows into any type implementing
-//! sqlx's `FromRow`.
+//! The functions here take any [`Renderable`](oxider_query_core::Renderable)
+//! query built with `oxider-query-core`, render it with the connected database's
+//! dialect, bind its parameters and run the statement on a sqlx connection or
+//! pool, mapping result rows into any type implementing sqlx's `FromRow`.
+//!
+//! Because the dialect is chosen here, from the database, call sites never spell
+//! `.render(&Sqlite)`: they pass the query directly. Queries stay
+//! dialect-agnostic, so pointing at a different database does not touch query
+//! code.
 //!
 //! Backends are feature-gated. Only SQLite is implemented today (default
 //! feature `sqlite`); Postgres and MySQL execution will follow the same shape
@@ -22,8 +26,9 @@
 //! struct User { id: i64, name: String }
 //!
 //! let pool = SqlitePool::connect("sqlite::memory:").await?;
-//! let rendered = User::query().filter(User::id.gt(0)).render(&Sqlite);
-//! let users: Vec<User> = oxider_query_exec::fetch_all(&pool, &rendered).await?;
+//! // No `.render(&Sqlite)` here - the pool's backend picks the dialect.
+//! let users: Vec<User> =
+//!     oxider_query_exec::fetch_all(&pool, User::query().filter(User::id.gt(0))).await?;
 //! # let _ = users;
 //! # Ok(())
 //! # }

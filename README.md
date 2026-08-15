@@ -118,7 +118,7 @@ Every query tracks its in-scope tables (the FROM entity plus each join) at the t
 
 ## Running queries
 
-The core builder is execution-agnostic; the optional `oxider-query-exec` crate binds the rendered `(sql, params)` to [sqlx](https://github.com/launchbadge/sqlx) and runs it. Rows map into any `sqlx::FromRow` type. SQLite is implemented today (Postgres and MySQL will follow the same shape behind features):
+The core builder is execution-agnostic; the optional `oxider-query-exec` crate takes a query, renders it with the connected database's dialect, and runs it over [sqlx](https://github.com/launchbadge/sqlx). Rows map into any `sqlx::FromRow` type. The dialect is chosen from the pool, so call sites pass the query directly - no `.render(&Sqlite)` - and switching databases never touches query code. SQLite is implemented today (Postgres and MySQL will follow the same shape behind features):
 
 ```rust
 #[derive(Entity, sqlx::FromRow)]
@@ -129,12 +129,12 @@ let pool = SqlitePool::connect("sqlite::memory:").await?;
 
 oxider_query_exec::execute(
     &pool,
-    &User::insert().value(User::name, "Alice").value(User::age, 30).render(&Sqlite),
+    User::insert().value(User::name, "Alice").value(User::age, 30),
 ).await?;
 
 let adults: Vec<User> = oxider_query_exec::fetch_all(
     &pool,
-    &User::query().filter(User::age.ge(18)).order_by(User::age.asc()).render(&Sqlite),
+    User::query().filter(User::age.ge(18)).order_by(User::age.asc()),
 ).await?;
 ```
 

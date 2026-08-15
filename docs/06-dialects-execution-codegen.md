@@ -43,15 +43,18 @@ Core không tự quản kết nối.
 Crate `oxider-query-exec` cầu nối `Rendered` sang [sqlx](https://github.com/launchbadge/sqlx) và chạy statement.
 Hôm nay hỗ trợ SQLite (feature `sqlite`, bật mặc định); Postgres và MySQL sẽ theo cùng khuôn sau này.
 
-Bốn hàm async, đều generic trên executor sqlx (nhận `&Pool`, `&mut Connection`, hoặc transaction):
+Bốn hàm async, đều generic trên executor sqlx (nhận `&Pool`, `&mut Connection`, hoặc transaction).
+Quan trọng: chúng nhận thẳng **query builder**, không phải chuỗi đã render.
+Lớp exec tự render bằng dialect của database đang kết nối, nên **call site không còn `.render(&Sqlite)`**:
 
 | Hàm | Trả về | Dùng cho |
 |-----|--------|----------|
-| `execute(exec, &rendered)` | `u64` (số dòng ảnh hưởng) | INSERT/UPDATE/DELETE |
-| `fetch_all(exec, &rendered)` | `Vec<O>` | SELECT nhiều dòng |
-| `fetch_one(exec, &rendered)` | `O` | SELECT đúng một dòng |
-| `fetch_optional(exec, &rendered)` | `Option<O>` | SELECT không hoặc một dòng |
+| `execute(exec, query)` | `u64` (số dòng ảnh hưởng) | INSERT/UPDATE/DELETE |
+| `fetch_all(exec, query)` | `Vec<O>` | SELECT nhiều dòng |
+| `fetch_one(exec, query)` | `O` | SELECT đúng một dòng |
+| `fetch_optional(exec, query)` | `Option<O>` | SELECT không hoặc một dòng |
 
+Tham số `query` nhận bất cứ thứ gì implement `Renderable`: `Select`, `Insert`, `Update`, `Delete`, hoặc một `Rendered` dựng sẵn.
 Kiểu kết quả `O` phải implement `sqlx::FromRow`.
 Thường bạn derive cả `Entity` lẫn `sqlx::FromRow` trên cùng struct:
 
@@ -64,23 +67,23 @@ use sqlx::SqlitePool;
 struct User { id: i64, name: String, age: i64, active: bool }
 
 async fn run(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    // Ghi
+    // Ghi - không có .render(&...) ở đây
     let affected = oxider_query_exec::execute(
         pool,
-        &User::insert().value(User::name, "Alice").value(User::age, 30).value(User::active, true).render(&Sqlite),
+        User::insert().value(User::name, "Alice").value(User::age, 30).value(User::active, true),
     ).await?;
     assert_eq!(affected, 1);
 
     // Đọc nhiều
     let adults: Vec<User> = oxider_query_exec::fetch_all(
         pool,
-        &User::query().filter(User::age.ge(18)).order_by(User::age.asc()).render(&Sqlite),
+        User::query().filter(User::age.ge(18)).order_by(User::age.asc()),
     ).await?;
 
     // Đọc một (có thể không có)
     let maybe: Option<User> = oxider_query_exec::fetch_optional(
         pool,
-        &User::query().filter(User::id.eq(1)).render(&Sqlite),
+        User::query().filter(User::id.eq(1)),
     ).await?;
 
     let _ = (adults, maybe);
@@ -88,7 +91,12 @@ async fn run(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 }
 ```
 
+Vì query giữ nguyên dạng dialect-agnostic và dialect chỉ được chọn bên trong lớp exec (theo loại pool), đổi sang Postgres/MySQL sau này chỉ là đổi loại connection pool - **không sửa một dòng query nào**.
+Đây là cách khuyến nghị để tránh rải `.render(&Postgres)` khắp code.
+
 `Value` được bind sang kiểu sqlx tương ứng: `Bool -> bool`, `Int -> i64`, `Real -> f64`, `Text -> String`, `Null -> NULL`.
+
+Nếu cần tự cầm SQL (log, driver khác, dialect tùy biến), bạn vẫn gọi `.render(&dialect)` để lấy `Rendered { sql, params }` rồi xử lý tay; lớp exec chỉ là tiện ích phía trên.
 
 ### Cargo cho lớp exec
 

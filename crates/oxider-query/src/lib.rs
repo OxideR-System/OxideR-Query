@@ -92,7 +92,7 @@ pub use oxider_query_macros::Entity;
 pub mod prelude {
     pub use oxider_query_core::{
         avg, count, count_all, exists, max, min, not_exists, sum, Column, Dialect, Entity, MySql,
-        OrderTerm, Postgres, Predicate, Sqlite, ToSqlValue,
+        OrderTerm, Postgres, Predicate, Renderable, Sqlite, ToSqlValue,
     };
     pub use oxider_query_macros::Entity;
 }

@@ -30,6 +30,6 @@ pub use predicate::{Order, OrderDir, OrderTerm, Predicate};
 pub use query::{
     exists, not_exists, OnClause, Select, SelectItem, SelectQuery, Selection, Subquery,
 };
-pub use render::Rendered;
+pub use render::{Renderable, Rendered};
 pub use source::{Cons, Nil};
 pub use value::{Numeric, Orderable, ToSqlValue, Value};
