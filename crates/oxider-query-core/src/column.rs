@@ -28,6 +28,21 @@ pub trait Entity: Sized {
     fn query() -> crate::query::Select<Cons<Self, Nil>> {
         crate::query::Select::new(Self::TABLE)
     }
+
+    /// Begin an INSERT into this entity's table.
+    fn insert() -> crate::mutation::Insert<Self> {
+        crate::mutation::Insert::new(Self::TABLE)
+    }
+
+    /// Begin an UPDATE of this entity's table.
+    fn update() -> crate::mutation::Update<Self> {
+        crate::mutation::Update::new(Self::TABLE)
+    }
+
+    /// Begin a DELETE from this entity's table.
+    fn delete() -> crate::mutation::Delete<Self> {
+        crate::mutation::Delete::new(Self::TABLE)
+    }
 }
 
 /// The type-level source set contributed by a single column of entity `E`.

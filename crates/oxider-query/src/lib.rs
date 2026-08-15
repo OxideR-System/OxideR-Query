@@ -56,6 +56,19 @@
 //! sum(Order::status); // error: the trait bound `String: Numeric` is not satisfied
 //! ```
 //!
+//! Mutations are single-table: assigning a column of a different entity is a
+//! compile error.
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "users")]
+//! # struct User { id: i64, name: String }
+//! # #[derive(Entity)] #[oxider(table = "departments")]
+//! # struct Department { id: i64, name: String }
+//! // Updating users but assigning a departments column -> type mismatch.
+//! User::update().set(Department::name, "x");
+//! ```
+//!
 //! This facade re-exports the core crate and the derive macro, so downstream
 //! crates only depend on `oxider-query`.
 

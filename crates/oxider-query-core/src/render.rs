@@ -96,7 +96,7 @@ impl SelectQuery {
 }
 
 /// Recursively render an expression, appending bound values to `params`.
-fn render_expr<D: Dialect>(expr: &Expr, dialect: &D, params: &mut Vec<Value>) -> String {
+pub(crate) fn render_expr<D: Dialect>(expr: &Expr, dialect: &D, params: &mut Vec<Value>) -> String {
     match expr {
         Expr::Column { table, name } => {
             format!(

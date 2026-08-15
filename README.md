@@ -72,6 +72,19 @@ let rows = Order::query()
 // GROUP BY "orders"."customer_id" HAVING (COUNT(*) > $2)
 ```
 
+INSERT, UPDATE, and DELETE share the same typed columns and dialect rendering. Assignments and predicates are type-checked to the target table:
+
+```rust
+User::insert().value(User::name, "Alice").value(User::age, 30).render(&Postgres);
+// INSERT INTO "users" ("name", "age") VALUES ($1, $2)
+
+User::update().set(User::name, "Bob").filter(User::id.eq(7)).render(&Postgres);
+// UPDATE "users" SET "name" = $1 WHERE ("users"."id" = $2)
+
+User::delete().filter(User::active.eq(false)).render(&Postgres);
+// DELETE FROM "users" WHERE ("users"."active" = $1)
+```
+
 The same query renders to any supported dialect - the AST is built once, the dialect only changes quoting and placeholder style:
 
 | Dialect | Identifiers | Placeholders |

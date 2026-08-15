@@ -100,7 +100,7 @@ oxider-query/                  # workspace root
 | 3b | [DONE] Type-track bảng đã join (chỉ cho ref cột đã join) qua HList source-set | ref cột chưa join fail compile, compile_fail doctest |
 | 3c | (HOÃN sang Phase 6) Nullability outer join ở tầng type - chỉ có ý nghĩa khi có tầng mapping row->struct | test biên nullability |
 | 4a | [DONE] Aggregate (COUNT/SUM/AVG/MIN/MAX) + GROUP BY + HAVING, gate Numeric/Orderable | 4 render test, sum(text) fail compile |
-| 4b | INSERT / UPDATE / DELETE builder + render | render test cho từng DML |
+| 4b | [DONE] INSERT / UPDATE / DELETE builder + render, single-table type-safe | 5 render test, set cột sai entity fail compile |
 | 4c | Subquery (IN / scalar) | render test subquery |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
