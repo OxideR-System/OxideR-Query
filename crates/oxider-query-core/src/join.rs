@@ -27,6 +27,7 @@ impl JoinKind {
 }
 
 /// A single JOIN clause: kind, target table, and ON condition.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Join {
     pub(crate) kind: JoinKind,
     pub(crate) table: &'static str,

@@ -20,79 +20,99 @@ impl SelectQuery {
     /// Render this query for a specific dialect.
     pub fn render<D: Dialect>(&self, dialect: &D) -> Rendered {
         let mut params = Vec::new();
-        let mut sql = String::from("SELECT ");
-
-        if self.columns.is_empty() {
-            sql.push('*');
-        } else {
-            let cols: Vec<String> = self
-                .columns
-                .iter()
-                .map(|c| render_expr(c, dialect, &mut params))
-                .collect();
-            sql.push_str(&cols.join(", "));
-        }
-
-        sql.push_str(" FROM ");
-        sql.push_str(&dialect.quote_ident(self.from));
-
-        for join in &self.joins {
-            sql.push(' ');
-            sql.push_str(join.kind.as_sql());
-            sql.push(' ');
-            sql.push_str(&dialect.quote_ident(join.table));
-            sql.push_str(" ON ");
-            sql.push_str(&render_expr(&join.on, dialect, &mut params));
-        }
-
-        if let Some(filter) = &self.filter {
-            sql.push_str(" WHERE ");
-            sql.push_str(&render_expr(filter, dialect, &mut params));
-        }
-
-        if !self.group.is_empty() {
-            sql.push_str(" GROUP BY ");
-            let cols: Vec<String> = self
-                .group
-                .iter()
-                .map(|c| render_expr(c, dialect, &mut params))
-                .collect();
-            sql.push_str(&cols.join(", "));
-        }
-
-        if let Some(having) = &self.having {
-            sql.push_str(" HAVING ");
-            sql.push_str(&render_expr(having, dialect, &mut params));
-        }
-
-        if !self.order.is_empty() {
-            sql.push_str(" ORDER BY ");
-            let terms: Vec<String> = self
-                .order
-                .iter()
-                .map(|t| {
-                    let expr = render_expr(&t.expr, dialect, &mut params);
-                    let dir = match t.dir {
-                        OrderDir::Asc => "ASC",
-                        OrderDir::Desc => "DESC",
-                    };
-                    format!("{expr} {dir}")
-                })
-                .collect();
-            sql.push_str(&terms.join(", "));
-        }
-
-        // LIMIT/OFFSET take non-negative integer literals, so inlining them is
-        // safe (no user-controlled string) and uniform across the target dialects.
-        if let Some(n) = self.limit {
-            let _ = write!(sql, " LIMIT {n}");
-        }
-        if let Some(m) = self.offset {
-            let _ = write!(sql, " OFFSET {m}");
-        }
-
+        let sql = render_select(self, dialect, &mut params);
         Rendered { sql, params }
     }
+}
+
+/// Render a SELECT into SQL text, appending its bound values to `params`. Shared
+/// by the top-level [`SelectQuery::render`] and by subquery expressions so that
+/// placeholders stay in a single global order.
+pub(crate) fn render_select<D: Dialect>(
+    query: &SelectQuery,
+    dialect: &D,
+    params: &mut Vec<Value>,
+) -> String {
+    let SelectQuery {
+        from,
+        joins,
+        columns,
+        filter,
+        group,
+        having,
+        order,
+        limit,
+        offset,
+    } = query;
+    let mut sql = String::from("SELECT ");
+
+    if columns.is_empty() {
+        sql.push('*');
+    } else {
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|c| render_expr(c, dialect, params))
+            .collect();
+        sql.push_str(&cols.join(", "));
+    }
+
+    sql.push_str(" FROM ");
+    sql.push_str(&dialect.quote_ident(from));
+
+    for join in joins {
+        sql.push(' ');
+        sql.push_str(join.kind.as_sql());
+        sql.push(' ');
+        sql.push_str(&dialect.quote_ident(join.table));
+        sql.push_str(" ON ");
+        sql.push_str(&render_expr(&join.on, dialect, params));
+    }
+
+    if let Some(filter) = filter {
+        sql.push_str(" WHERE ");
+        sql.push_str(&render_expr(filter, dialect, params));
+    }
+
+    if !group.is_empty() {
+        sql.push_str(" GROUP BY ");
+        let cols: Vec<String> = group
+            .iter()
+            .map(|c| render_expr(c, dialect, params))
+            .collect();
+        sql.push_str(&cols.join(", "));
+    }
+
+    if let Some(having) = having {
+        sql.push_str(" HAVING ");
+        sql.push_str(&render_expr(having, dialect, params));
+    }
+
+    if !order.is_empty() {
+        sql.push_str(" ORDER BY ");
+        let terms: Vec<String> = order
+            .iter()
+            .map(|t| {
+                let expr = render_expr(&t.expr, dialect, params);
+                let dir = match t.dir {
+                    OrderDir::Asc => "ASC",
+                    OrderDir::Desc => "DESC",
+                };
+                format!("{expr} {dir}")
+            })
+            .collect();
+        sql.push_str(&terms.join(", "));
+    }
+
+    // LIMIT/OFFSET take non-negative integer literals, so inlining them is
+    // safe (no user-controlled string) and uniform across the target dialects.
+    if let Some(n) = limit {
+        let _ = write!(sql, " LIMIT {n}");
+    }
+    if let Some(m) = offset {
+        let _ = write!(sql, " OFFSET {m}");
+    }
+
+    sql
 }
 
 /// Recursively render an expression, appending bound values to `params`.
@@ -120,6 +140,13 @@ pub(crate) fn render_expr<D: Dialect>(expr: &Expr, dialect: &D, params: &mut Vec
                 None => "*".to_string(),
             };
             format!("{}({})", func.as_sql(), inner)
+        }
+        Expr::Subquery(query) => {
+            format!("({})", render_select(query, dialect, params))
+        }
+        Expr::Exists { negated, subquery } => {
+            let kw = if *negated { "NOT EXISTS" } else { "EXISTS" };
+            format!("{} ({})", kw, render_select(subquery, dialect, params))
         }
     }
 }

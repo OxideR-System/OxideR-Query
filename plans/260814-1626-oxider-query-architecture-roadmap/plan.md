@@ -1,6 +1,6 @@
 # OxideR-Query: Kiến trúc & Roadmap
 
-Status: IN PROGRESS - Phase 0, 1, 2, 3a, 3b, 4a DONE; 3c hoãn sang Phase 6
+Status: IN PROGRESS - Phase 0-2, 3a, 3b, 4a, 4b, 4c DONE; 3c hoãn sang Phase 6; còn 5, 6, 7
 Ngày: 2026-08-14 (cập nhật 2026-08-15)
 
 ## Quyết định 3c (2026-08-15): hoãn nullability type-level sang Phase 6
@@ -101,7 +101,7 @@ oxider-query/                  # workspace root
 | 3c | (HOÃN sang Phase 6) Nullability outer join ở tầng type - chỉ có ý nghĩa khi có tầng mapping row->struct | test biên nullability |
 | 4a | [DONE] Aggregate (COUNT/SUM/AVG/MIN/MAX) + GROUP BY + HAVING, gate Numeric/Orderable | 4 render test, sum(text) fail compile |
 | 4b | [DONE] INSERT / UPDATE / DELETE builder + render, single-table type-safe | 5 render test, set cột sai entity fail compile |
-| 4c | Subquery (IN / scalar) | render test subquery |
+| 4c | [DONE] Subquery: IN/NOT IN (type-match cột outer) + EXISTS/NOT EXISTS, uncorrelated | 4 render test, IN sai kiểu fail compile |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 6 | Lớp exec + mapping row->struct, async | Chạy query thật trên DB, tích hợp sqlx |

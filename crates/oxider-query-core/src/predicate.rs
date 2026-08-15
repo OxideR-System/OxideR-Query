@@ -68,6 +68,7 @@ pub enum OrderDir {
 }
 
 /// A source-erased ORDER BY term in the query AST.
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderTerm {
     pub(crate) expr: Expr,
     pub(crate) dir: OrderDir,

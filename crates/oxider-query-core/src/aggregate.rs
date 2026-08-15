@@ -120,6 +120,7 @@ impl<S, T: ToSqlValue + Orderable> Aggregate<S, T> {
 
 impl<S, T> SelectItem for Aggregate<S, T> {
     type Sources = S;
+    type Output = T;
     fn into_select_expr(self) -> Expr {
         self.expr
     }

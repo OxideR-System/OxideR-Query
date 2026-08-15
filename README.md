@@ -85,6 +85,15 @@ User::delete().filter(User::active.eq(false)).render(&Postgres);
 // DELETE FROM "users" WHERE ("users"."active" = $1)
 ```
 
+Subqueries: `IN`/`NOT IN` against a single-column subquery (type-matched to the outer column) and `EXISTS`/`NOT EXISTS`:
+
+```rust
+let active = Department::query().filter(Department::active.eq(true)).scalar(Department::id);
+User::query().filter(User::department_id.in_subquery(active)).render(&Postgres);
+// SELECT * FROM "users"
+// WHERE ("users"."department_id" IN (SELECT "departments"."id" FROM "departments" WHERE ("departments"."active" = $1)))
+```
+
 The same query renders to any supported dialect - the AST is built once, the dialect only changes quoting and placeholder style:
 
 | Dialect | Identifiers | Placeholders |

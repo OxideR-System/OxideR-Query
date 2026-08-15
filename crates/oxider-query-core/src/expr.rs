@@ -23,6 +23,10 @@ pub enum BinOp {
     Ge,
     /// `LIKE`
     Like,
+    /// `IN`
+    In,
+    /// `NOT IN`
+    NotIn,
     /// `AND`
     And,
     /// `OR`
@@ -40,6 +44,8 @@ impl BinOp {
             BinOp::Gt => ">",
             BinOp::Ge => ">=",
             BinOp::Like => "LIKE",
+            BinOp::In => "IN",
+            BinOp::NotIn => "NOT IN",
             BinOp::And => "AND",
             BinOp::Or => "OR",
         }
@@ -101,5 +107,14 @@ pub enum Expr {
         func: AggFunc,
         /// The aggregated expression, or `None` for `COUNT(*)`.
         arg: Option<Box<Expr>>,
+    },
+    /// A parenthesized scalar/row subquery, e.g. the right-hand side of `IN`.
+    Subquery(Box<crate::query::SelectQuery>),
+    /// An `EXISTS` / `NOT EXISTS` test over a subquery.
+    Exists {
+        /// Whether the test is negated (`NOT EXISTS`).
+        negated: bool,
+        /// The subquery being tested.
+        subquery: Box<crate::query::SelectQuery>,
     },
 }

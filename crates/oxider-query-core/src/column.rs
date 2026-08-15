@@ -123,6 +123,25 @@ impl<E, T: ToSqlValue> Column<E, T> {
             rhs: Box::new(Expr::Param(bound)),
         })
     }
+
+    /// `self IN (subquery)`. The subquery must select a single column of the
+    /// same Rust type `T`, so a type mismatch is a compile error.
+    pub fn in_subquery(self, subquery: crate::query::Subquery<T>) -> Predicate<Only<E>> {
+        self.subquery_test(BinOp::In, subquery)
+    }
+
+    /// `self NOT IN (subquery)`.
+    pub fn not_in_subquery(self, subquery: crate::query::Subquery<T>) -> Predicate<Only<E>> {
+        self.subquery_test(BinOp::NotIn, subquery)
+    }
+
+    fn subquery_test(self, op: BinOp, subquery: crate::query::Subquery<T>) -> Predicate<Only<E>> {
+        Predicate::new(Expr::Binary {
+            op,
+            lhs: Box::new(self.column_expr()),
+            rhs: Box::new(Expr::Subquery(Box::new(subquery.into_query()))),
+        })
+    }
 }
 
 /// Ordering operators, available only on orderable column types.

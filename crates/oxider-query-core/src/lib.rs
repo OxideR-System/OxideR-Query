@@ -27,7 +27,9 @@ pub use expr::{AggFunc, BinOp, Expr};
 pub use join::{Join, JoinKind};
 pub use mutation::{Delete, Insert, Update};
 pub use predicate::{Order, OrderDir, OrderTerm, Predicate};
-pub use query::{OnClause, Select, SelectItem, SelectQuery, Selection};
+pub use query::{
+    exists, not_exists, OnClause, Select, SelectItem, SelectQuery, Selection, Subquery,
+};
 pub use render::Rendered;
 pub use source::{Cons, Nil};
 pub use value::{Numeric, Orderable, ToSqlValue, Value};

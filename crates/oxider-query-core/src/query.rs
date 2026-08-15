@@ -18,6 +18,7 @@ use core::marker::PhantomData;
 
 /// A built SELECT query in dialect-agnostic form. Render with
 /// [`SelectQuery::render`].
+#[derive(Debug, Clone, PartialEq)]
 pub struct SelectQuery {
     /// FROM table.
     pub from: &'static str,
@@ -209,6 +210,22 @@ impl<S> Select<S> {
         }
     }
 
+    /// Finalize as a single-column scalar subquery selecting `item`, for use as
+    /// the right-hand side of [`Column::in_subquery`](crate::Column::in_subquery)
+    /// (or NOT IN). The item's Rust type becomes the subquery's type, so the
+    /// outer column and the subquery column must match.
+    pub fn scalar<I, Idxs>(mut self, item: I) -> Subquery<I::Output>
+    where
+        I: SelectItem,
+        S: ContainsAll<I::Sources, Idxs>,
+    {
+        self.columns = vec![item.into_select_expr()];
+        Subquery {
+            query: self.build(),
+            _marker: PhantomData,
+        }
+    }
+
     /// Convenience: build and render in one step.
     pub fn render<D: Dialect>(self, dialect: &D) -> Rendered {
         self.build().render(dialect)
@@ -240,18 +257,56 @@ impl<S> OnClause for Predicate<S> {
     }
 }
 
+/// A finalized single-column subquery whose selected column has Rust type `T`.
+///
+/// Built with [`Select::scalar`] and consumed by
+/// [`Column::in_subquery`](crate::Column::in_subquery) / `not_in_subquery`. The
+/// subquery is uncorrelated: it does not reference the outer query's tables.
+pub struct Subquery<T> {
+    query: SelectQuery,
+    _marker: PhantomData<fn() -> T>,
+}
+
+impl<T> Subquery<T> {
+    /// Consume into the underlying AST. Internal to predicate construction.
+    pub(crate) fn into_query(self) -> SelectQuery {
+        self.query
+    }
+}
+
+/// `EXISTS (subquery)` - true when the subquery returns any row. References no
+/// outer entity, so it is always in scope wherever a predicate is accepted.
+pub fn exists<S>(select: Select<S>) -> Predicate<Nil> {
+    Predicate::new(Expr::Exists {
+        negated: false,
+        subquery: Box::new(select.build()),
+    })
+}
+
+/// `NOT EXISTS (subquery)` - true when the subquery returns no rows.
+pub fn not_exists<S>(select: Select<S>) -> Predicate<Nil> {
+    Predicate::new(Expr::Exists {
+        negated: true,
+        subquery: Box::new(select.build()),
+    })
+}
+
 /// A single item usable in a SELECT or GROUP BY list: a [`Column`] or an
 /// [`Aggregate`](crate::Aggregate). Carries the entities it references as a
 /// type-level source set.
 pub trait SelectItem {
     /// The set of entities this item references.
     type Sources;
+    /// The Rust type this item evaluates to (used when it becomes a scalar
+    /// subquery).
+    type Output;
     /// Lower the item into an AST expression.
     fn into_select_expr(self) -> Expr;
 }
 
 impl<E, T> SelectItem for Column<E, T> {
     type Sources = Cons<E, Nil>;
+    type Output = T;
     fn into_select_expr(self) -> Expr {
         Expr::Column {
             table: self.table,

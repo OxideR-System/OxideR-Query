@@ -69,6 +69,19 @@
 //! User::update().set(Department::name, "x");
 //! ```
 //!
+//! An `IN` subquery must select a column of the outer column's type:
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "users")]
+//! # struct User { id: i64, department_id: i64 }
+//! # #[derive(Entity)] #[oxider(table = "departments")]
+//! # struct Department { id: i64, name: String }
+//! // department_id is i64 but the subquery selects a String column.
+//! let sub = Department::query().scalar(Department::name);
+//! User::query().filter(User::department_id.in_subquery(sub));
+//! ```
+//!
 //! This facade re-exports the core crate and the derive macro, so downstream
 //! crates only depend on `oxider-query`.
 
@@ -78,8 +91,8 @@ pub use oxider_query_macros::Entity;
 /// Common imports for building queries.
 pub mod prelude {
     pub use oxider_query_core::{
-        avg, count, count_all, max, min, sum, Column, Dialect, Entity, MySql, OrderTerm, Postgres,
-        Predicate, Sqlite, ToSqlValue,
+        avg, count, count_all, exists, max, min, not_exists, sum, Column, Dialect, Entity, MySql,
+        OrderTerm, Postgres, Predicate, Sqlite, ToSqlValue,
     };
     pub use oxider_query_macros::Entity;
 }
