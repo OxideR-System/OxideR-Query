@@ -159,14 +159,15 @@ let adults: Vec<User> = oxider_query_exec::fetch_all(
 
 ## Roadmap
 
-See `plans/260814-1626-oxider-query-architecture-roadmap/plan.md`. Joins now track in-scope tables at the type level. Next up: type-level nullability for outer joins, then the remaining SQL clauses (GROUP BY, HAVING, aggregates, subqueries, INSERT/UPDATE/DELETE).
+See `plans/260814-1626-oxider-query-architecture-roadmap/plan.md`. The core builder is feature-complete for SQLite: type-safe SELECT (WHERE, JOIN, aggregates, GROUP BY/HAVING, subqueries) and INSERT/UPDATE/DELETE, rendering to all three dialects, with async execution and schema codegen over SQLite. Remaining work: Postgres/MySQL execution and codegen backends (the builder is already multi-dialect, so each is param binding plus row typing), type-level nullability for outer joins (deferred until the row-mapping layer gives it a consumer), and correlated subqueries.
 
 ## Development
 
 ```bash
 cargo test --all
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all --check
+cargo bench -p oxider-query   # render-throughput microbench (criterion)
 ```
 
 ## License

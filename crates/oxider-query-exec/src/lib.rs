@@ -1,8 +1,9 @@
 //! `oxider-query-exec`: async execution layer bridging OxideR-Query's rendered
 //! SQL to [`sqlx`].
 //!
-//! The query builder in `oxider-query-core` produces a [`Rendered`] `(sql,
-//! params)` pair. This crate binds those parameters and runs the statement on a
+//! The query builder in `oxider-query-core` produces a
+//! [`Rendered`](oxider_query_core::Rendered) `(sql, params)` pair. This crate
+//! binds those parameters and runs the statement on a
 //! sqlx connection or pool, mapping result rows into any type implementing
 //! sqlx's `FromRow`.
 //!

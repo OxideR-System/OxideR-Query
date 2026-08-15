@@ -6,7 +6,17 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme = "../../README.md"
+keywords = ["sql", "query-builder", "database", "type-safe", "querydsl"]
+categories = ["database"]
 
 [dependencies]
 oxider-query-core.workspace = true
 oxider-query-macros.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "render"
+harness = false
