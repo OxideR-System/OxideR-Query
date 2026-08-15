@@ -34,6 +34,19 @@
 //! User::name.eq(123); // error: the trait bound `i64: Into<String>` is not satisfied
 //! ```
 //!
+//! Referencing a column of an entity you forgot to join is also a compile error;
+//! the referenced table must be in scope (via FROM or a JOIN):
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "users")]
+//! # struct User { id: i64, name: String }
+//! # #[derive(Entity)] #[oxider(table = "departments")]
+//! # struct Department { id: i64, name: String }
+//! // Department was never joined -> `Nil: Contains<Department>` is not satisfied.
+//! User::query().filter(Department::name.eq("AI"));
+//! ```
+//!
 //! This facade re-exports the core crate and the derive macro, so downstream
 //! crates only depend on `oxider-query`.
 

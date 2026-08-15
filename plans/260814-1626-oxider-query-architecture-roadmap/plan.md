@@ -1,7 +1,7 @@
 # OxideR-Query: Kiến trúc & Roadmap
 
-Status: IN PROGRESS - Phase 0, 1, 2 DONE; Phase 1 API pivoted (Column<Entity,T>)
-Ngày: 2026-08-14
+Status: IN PROGRESS - Phase 0, 1, 2, 3a, 3b DONE; Phase 1 API pivoted (Column<Entity,T>)
+Ngày: 2026-08-14 (cập nhật 2026-08-15)
 
 ## Pivot thiết kế Column (2026-08-14, sau brainstorm)
 
@@ -10,6 +10,15 @@ Lý do: entity param cần cho join type-safe (`eq_column`) và projection type-
 API mới: `User::id` (assoc const), `User::query()` (Entity trait), thay cho `User::table().id` / `Query::select()`.
 Bổ sung: ops gate theo trait (Orderable cho lt/gt, String cho contains/like), ORDER BY / LIMIT / OFFSET, filter_opt (dynamic query).
 Đã verify: sai kiểu / sai op fail compile với message đọc được (`no method named contains`, `bool: Orderable not satisfied`, `i64: Into<String>`).
+
+## Phase 3b: type-level table-set enforcement (2026-08-15)
+
+`Select<S>` mang type-level cons-list các entity trong scope (FROM + mỗi JOIN).
+`source.rs`: HList (`Cons`/`Nil`), `Contains<E, Idx>` dùng witness `Here`/`There` (frunk trick, tránh overlap), `ContainsAll<List, Idxs>`, `Concat`.
+Column ops trả `Predicate<Cons<E, Nil>>` / `Order<Cons<E, Nil>>`; `and`/`or` merge source qua `Concat`; `eq_column` gộp 2 entity.
+`filter`/`select`/`order_by` bound `S: ContainsAll<referenced, Idxs>` -> ref cột entity chưa join fail compile.
+`join`/`left_join` trả `Select<Cons<E2, S>>`; ON clause KHÔNG check (entity mới chưa trong scope), erase qua trait `OnClause` để turbofish chỉ cần `E2`.
+Verify: `User::query().filter(Department::name.eq(...))` khi chưa join Department -> `Nil: Contains<Department>` not satisfied; đã khoá bằng compile_fail doctest.
 
 ## Quyết định bổ sung (đã chốt)
 
@@ -82,8 +91,9 @@ oxider-query/                  # workspace root
 | 1 | [DONE] Expression system + Column model + derive macro tối thiểu. SELECT ... WHERE 1 bảng. Render Postgres. | 3 test render xanh, type-safety verified |
 | 2 | [DONE] Trait `Dialect` tách module + Postgres/MySQL/SQLite. Khác biệt placeholder ($N vs ?) + quote (" vs `) + escaping | 3 dialect render đúng, unit test escaping |
 | 3a | [DONE] JOIN render (INNER/LEFT) + multi-entity select + eq_column join-key type-safe | 3 join test, param order đúng, mismatch key fail compile |
-| 3b | Type-track bảng đã join (chỉ cho ref cột đã join) + nullability outer join ở type | JOIN type-safe đầy đủ, test biên |
-| 4 | Đủ clause: ORDER BY, GROUP BY, HAVING, aggregate, subquery, INSERT/UPDATE/DELETE | Coverage SQL cơ bản đầy đủ |
+| 3b | [DONE] Type-track bảng đã join (chỉ cho ref cột đã join) qua HList source-set | ref cột chưa join fail compile, compile_fail doctest |
+| 3c | Nullability outer join ở tầng type (LEFT JOIN nâng cột non-null bên phải thành nullable) | test biên nullability |
+| 4 | Đủ clause: GROUP BY, HAVING, aggregate, subquery, INSERT/UPDATE/DELETE | Coverage SQL cơ bản đầy đủ |
 | 5 | Codegen introspect DB schema (metamodel path #2) | CLI/build-script sinh entity từ DB |
 | 6 | Lớp exec + mapping row->struct, async | Chạy query thật trên DB, tích hợp sqlx |
 | 7 | DX polish: error message, diagnostic, docs, benchmark | Docs.rs đầy đủ, bench vs Diesel/SeaQuery |

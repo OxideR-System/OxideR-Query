@@ -71,13 +71,20 @@ Misuse is a compile error, with readable messages:
 User::name.eq(123);        // error: the trait bound `i64: Into<String>` is not satisfied
 User::age.contains("50");  // error: no method named `contains` found for Column<_, i32>
 User::flag.gt(true);       // error: `bool: Orderable` is not satisfied
+
+// Referencing a table you never joined is a compile error, too:
+User::query().filter(Department::name.eq("AI"));
+// error: the trait bound `Nil: Contains<Department, _>` is not satisfied
 ```
+
+Every query tracks its in-scope tables (the FROM entity plus each join) at the type level, so `filter`, `select`, and `order_by` only accept columns of tables that are actually in scope. `join` extends that set.
 
 ## Design
 
 - **Query builder, layered.** The core produces `(sql, params)` and is database-agnostic. Connection handling and row mapping are a separate, optional layer added later.
 - **AST separated from rendering.** Queries build a dialect-agnostic AST; `render(&dialect)` emits dialect-specific SQL. This is the key to multi-dialect support without duplicating logic.
 - **`Column<Entity, Type>`.** Each column carries its owning entity and Rust type as compile-time markers. The entity keeps column references and join keys type-checked; the Rust type gates operators (ordering only on orderable types, `LIKE` only on strings) and drives value binding.
+- **Type-level table sets.** `Select<S>` tracks the in-scope entities as a type-level list; predicates and orderings carry the entities they reference, and clause methods require those to be in scope. Referencing a non-joined table fails to compile.
 - **DX over maximal type-state.** Type-safety is enforced where it matters, but operators live as inherent methods so mistakes surface as plain "method not found" / "trait bound not satisfied" errors rather than Diesel-style walls.
 
 ## Workspace
@@ -90,7 +97,7 @@ User::flag.gt(true);       // error: `bool: Orderable` is not satisfied
 
 ## Roadmap
 
-See `plans/260814-1626-oxider-query-architecture-roadmap/plan.md`. Next up: joins with type-tracked tables and nullability, then the remaining SQL clauses (ORDER BY, GROUP BY, aggregates, INSERT/UPDATE/DELETE).
+See `plans/260814-1626-oxider-query-architecture-roadmap/plan.md`. Joins now track in-scope tables at the type level. Next up: type-level nullability for outer joins, then the remaining SQL clauses (GROUP BY, HAVING, aggregates, subqueries, INSERT/UPDATE/DELETE).
 
 ## Development
 

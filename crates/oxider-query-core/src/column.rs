@@ -5,13 +5,15 @@
 //! `User::name`, mirroring QueryDSL's `QUser.user.id` but without a separate
 //! metamodel type.
 //!
-//! A [`Column`] carries two compile-time markers: the owning entity `E` (used to
-//! keep join keys and column references type-checked) and the Rust type `T` of
-//! the column (used to gate operators and, later, projections). Comparisons only
-//! accept a value convertible into `T`, so type mismatches fail to compile.
+//! A [`Column`] carries two compile-time markers: the owning entity `E` and the
+//! Rust type `T` of the column. `E` drives type-level source tracking (join keys
+//! and "did you join this table?" checks); `T` gates operators and drives value
+//! binding. Comparisons only accept a value convertible into `T`, so type
+//! mismatches fail to compile.
 
 use crate::expr::{BinOp, Expr};
-use crate::predicate::{OrderDir, OrderTerm, Predicate};
+use crate::predicate::{Order, OrderDir, Predicate};
+use crate::source::{Cons, Nil};
 use crate::value::{Orderable, ToSqlValue};
 use core::marker::PhantomData;
 
@@ -23,10 +25,13 @@ pub trait Entity: Sized {
     const TABLE: &'static str;
 
     /// Begin a SELECT query over this entity.
-    fn query() -> crate::query::Select<Self> {
-        crate::query::Select::new()
+    fn query() -> crate::query::Select<Cons<Self, Nil>> {
+        crate::query::Select::new(Self::TABLE)
     }
 }
+
+/// The type-level source set contributed by a single column of entity `E`.
+type Only<E> = Cons<E, Nil>;
 
 /// A typed table column: owning entity `E` and Rust type `T`.
 ///
@@ -74,20 +79,20 @@ impl<E, T> Copy for Column<E, T> {}
 /// Equality operators, available on every column whose type binds a value.
 impl<E, T: ToSqlValue> Column<E, T> {
     /// `self = value`
-    pub fn eq<V: Into<T>>(self, value: V) -> Predicate {
+    pub fn eq<V: Into<T>>(self, value: V) -> Predicate<Only<E>> {
         self.compare(BinOp::Eq, value)
     }
 
     /// `self <> value`
-    pub fn ne<V: Into<T>>(self, value: V) -> Predicate {
+    pub fn ne<V: Into<T>>(self, value: V) -> Predicate<Only<E>> {
         self.compare(BinOp::Ne, value)
     }
 
     /// Compare against another column of the same type, e.g. a join key.
     ///
     /// Requires both columns to share the Rust type `T`, so mismatched keys are
-    /// a compile error. The join primitive for a later phase.
-    pub fn eq_column<E2>(self, other: Column<E2, T>) -> Predicate {
+    /// a compile error. The result references both entities.
+    pub fn eq_column<E2>(self, other: Column<E2, T>) -> Predicate<Cons<E, Cons<E2, Nil>>> {
         Predicate::new(Expr::Binary {
             op: BinOp::Eq,
             lhs: Box::new(self.column_expr()),
@@ -95,7 +100,7 @@ impl<E, T: ToSqlValue> Column<E, T> {
         })
     }
 
-    fn compare<V: Into<T>>(self, op: BinOp, value: V) -> Predicate {
+    fn compare<V: Into<T>>(self, op: BinOp, value: V) -> Predicate<Only<E>> {
         let bound = value.into().to_sql_value();
         Predicate::new(Expr::Binary {
             op,
@@ -108,36 +113,36 @@ impl<E, T: ToSqlValue> Column<E, T> {
 /// Ordering operators, available only on orderable column types.
 impl<E, T: ToSqlValue + Orderable> Column<E, T> {
     /// `self > value`
-    pub fn gt<V: Into<T>>(self, value: V) -> Predicate {
+    pub fn gt<V: Into<T>>(self, value: V) -> Predicate<Only<E>> {
         self.compare(BinOp::Gt, value)
     }
     /// `self >= value`
-    pub fn ge<V: Into<T>>(self, value: V) -> Predicate {
+    pub fn ge<V: Into<T>>(self, value: V) -> Predicate<Only<E>> {
         self.compare(BinOp::Ge, value)
     }
     /// `self < value`
-    pub fn lt<V: Into<T>>(self, value: V) -> Predicate {
+    pub fn lt<V: Into<T>>(self, value: V) -> Predicate<Only<E>> {
         self.compare(BinOp::Lt, value)
     }
     /// `self <= value`
-    pub fn le<V: Into<T>>(self, value: V) -> Predicate {
+    pub fn le<V: Into<T>>(self, value: V) -> Predicate<Only<E>> {
         self.compare(BinOp::Le, value)
     }
 
     /// Order by this column ascending.
-    pub fn asc(self) -> OrderTerm {
-        OrderTerm::new(self.column_expr(), OrderDir::Asc)
+    pub fn asc(self) -> Order<Only<E>> {
+        Order::new(self.column_expr(), OrderDir::Asc)
     }
     /// Order by this column descending.
-    pub fn desc(self) -> OrderTerm {
-        OrderTerm::new(self.column_expr(), OrderDir::Desc)
+    pub fn desc(self) -> Order<Only<E>> {
+        Order::new(self.column_expr(), OrderDir::Desc)
     }
 }
 
 /// Text operators, available only on `String` columns.
 impl<E> Column<E, String> {
     /// `self LIKE pattern` (pattern used verbatim).
-    pub fn like(self, pattern: impl Into<String>) -> Predicate {
+    pub fn like(self, pattern: impl Into<String>) -> Predicate<Only<E>> {
         self.like_pattern(pattern.into())
     }
 
@@ -145,16 +150,16 @@ impl<E> Column<E, String> {
     ///
     /// Note: LIKE metacharacters (`%`, `_`) in `substring` are not escaped yet;
     /// escaping with an ESCAPE clause is a planned text-ops hardening step.
-    pub fn contains(self, substring: impl Into<String>) -> Predicate {
+    pub fn contains(self, substring: impl Into<String>) -> Predicate<Only<E>> {
         self.like_pattern(format!("%{}%", substring.into()))
     }
 
     /// `self LIKE 'prefix%'`.
-    pub fn starts_with(self, prefix: impl Into<String>) -> Predicate {
+    pub fn starts_with(self, prefix: impl Into<String>) -> Predicate<Only<E>> {
         self.like_pattern(format!("{}%", prefix.into()))
     }
 
-    fn like_pattern(self, pattern: String) -> Predicate {
+    fn like_pattern(self, pattern: String) -> Predicate<Only<E>> {
         Predicate::new(Expr::Binary {
             op: BinOp::Like,
             lhs: Box::new(self.column_expr()),
