@@ -96,9 +96,12 @@ Một handle `Db` cho mọi backend (`SqliteDb = Db<Sqlite>` hôm nay). Tạo b�
 | `db.fetch_one(query)` | `O` |
 | `db.fetch_optional(query)` | `Option<O>` |
 | `db.pool()` | `&Pool` sqlx bên dưới |
+| `db.begin()` | `Tx` (handle transaction) |
 
 `query: Renderable` (`Select`/`Insert`/`Update`/`Delete`/`Rendered`) - truyền thẳng, không cần `.render(&...)`; `Db` tự render theo dialect của backend.
 `O: sqlx::FromRow`. Thêm backend = impl trait `Backend` cho sqlx `Database` tương ứng.
+
+Transaction `Tx` (từ `db.begin()`) có cùng `execute`/`fetch_all`/`fetch_one`/`fetch_optional` (nhận `&mut self`), kết thúc bằng `tx.commit()` hoặc `tx.rollback()`.
 
 ## 8.9. Codegen (`oxider-query-codegen`, feature `sqlite`)
 

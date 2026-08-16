@@ -16,6 +16,8 @@ Core thêm trait `Renderable` (impl cho `Select`/`SelectQuery`/`Insert`/`Update`
 `Backend` trait ánh xạ sqlx `Database` -> dialect (assoc `Dialect: Default`) + bind param + rows_affected; encode concern nằm trong impl từng backend nên `Db` backend-agnostic.
 Hôm nay chỉ impl `Backend for sqlx::Sqlite` (alias `SqliteDb`); thêm Postgres/MySQL = thêm một impl, không đụng `Db`.
 Lợi ích: đổi DB = đổi kiểu handle, không sửa dòng query nào; không rải `.render(&dialect)` khắp code; một API duy nhất thay vì mỗi backend một bộ hàm (tránh name clash ở crate root).
+`db.begin()` trả handle `Tx` cùng bộ method (execute/fetch_*), commit/rollback; render+bind+run tách vào `ops.rs` generic trên executor nên `Db` (chạy trên `&Pool`) và `Tx` (chạy trên `&mut *tx`) dùng chung, không lặp.
+Module: `lib.rs` (trait Backend + re-export), `db.rs`, `tx.rs`, `ops.rs`, `sqlite.rs` - mỗi file <200 dòng.
 
 ## Pivot thiết kế Column (2026-08-14, sau brainstorm)
 

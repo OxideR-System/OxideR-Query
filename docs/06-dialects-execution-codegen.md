@@ -90,9 +90,29 @@ async fn run(db: &SqliteDb) -> Result<(), sqlx::Error> {
 Vì query giữ nguyên dạng dialect-agnostic và dialect chỉ được chọn bên trong `Db` (theo backend), đổi sang Postgres/MySQL sau này chỉ là đổi kiểu handle (`SqliteDb` -> `PostgresDb`) - **không sửa một dòng query nào**.
 Đây là cách khuyến nghị để tránh rải `.render(&Postgres)` khắp code.
 
-Cần thao tác sqlx thô (transaction, query tay) thì `db.pool()` trả về `&Pool` bên dưới.
+Cần thao tác sqlx thô (query tay ngoài builder) thì `db.pool()` trả về `&Pool` bên dưới.
 
 `Value` được bind sang kiểu sqlx tương ứng: `Bool -> bool`, `Int -> i64`, `Real -> f64`, `Text -> String`, `Null -> NULL`.
+
+### Transaction
+
+`db.begin()` mở một transaction, trả về handle `Tx` có **đúng bộ method như `Db`** (`execute`/`fetch_all`/`fetch_one`/`fetch_optional`).
+Kết thúc bằng `tx.commit()` (ghi bền) hoặc `tx.rollback()` (hủy).
+Bỏ handle mà không commit thì tự rollback.
+
+```rust
+let mut tx = db.begin().await?;
+tx.execute(User::insert().value(User::id, 1).value(User::name, "Alice")).await?;
+tx.execute(User::update().set(User::age, 31).filter(User::id.eq(1))).await?;
+
+// Đọc trong transaction thấy được thay đổi chưa commit của chính nó.
+let pending: Vec<User> = tx.fetch_all(User::query()).await?;
+
+tx.commit().await?; // hoặc tx.rollback().await? để hủy toàn bộ
+```
+
+Lưu ý: method của `Tx` nhận `&mut self` (transaction cần truy cập độc quyền), nên biến `tx` phải khai báo `mut`.
+Query truyền vào vẫn dialect-agnostic y hệt, `Tx` tự render theo backend.
 
 Nếu cần tự cầm SQL (log, driver khác, dialect tùy biến), bạn vẫn gọi `.render(&dialect)` để lấy `Rendered { sql, params }` rồi xử lý tay; `Db` chỉ là tiện ích phía trên.
 

@@ -116,3 +116,39 @@ async fn update_and_delete_affect_rows() {
         .unwrap();
     assert!(gone.is_none());
 }
+
+fn new_user(id: i64) -> impl Renderable {
+    User::insert()
+        .value(User::id, id)
+        .value(User::name, "Alice")
+        .value(User::age, 30)
+        .value(User::active, true)
+}
+
+#[tokio::test]
+async fn transaction_commit_persists() {
+    let db = seed().await;
+
+    let mut tx = db.begin().await.unwrap();
+    tx.execute(new_user(1)).await.unwrap();
+    tx.execute(new_user(2)).await.unwrap();
+    // Reads inside the transaction see its own uncommitted writes.
+    let mid: Vec<User> = tx.fetch_all(User::query()).await.unwrap();
+    assert_eq!(mid.len(), 2);
+    tx.commit().await.unwrap();
+
+    let rows: Vec<User> = db.fetch_all(User::query()).await.unwrap();
+    assert_eq!(rows.len(), 2);
+}
+
+#[tokio::test]
+async fn transaction_rollback_discards() {
+    let db = seed().await;
+
+    let mut tx = db.begin().await.unwrap();
+    tx.execute(new_user(1)).await.unwrap();
+    tx.rollback().await.unwrap();
+
+    let rows: Vec<User> = db.fetch_all(User::query()).await.unwrap();
+    assert!(rows.is_empty());
+}

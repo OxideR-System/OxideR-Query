@@ -134,6 +134,8 @@ let adults: Vec<User> = db
     .await?;
 ```
 
+`db.begin()` returns a `Tx` handle with the same query methods, finished with `tx.commit()` or `tx.rollback()`.
+
 ## Design
 
 - **Two ways to a metamodel.** Hand-write structs and `#[derive(Entity)]`, or point `oxider-query-codegen` at an existing database to generate those structs from its schema. Both produce the same `Entity` shape.
