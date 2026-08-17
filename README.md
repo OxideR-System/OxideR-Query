@@ -134,7 +134,7 @@ let adults: Vec<User> = db
     .await?;
 ```
 
-`db.begin()` returns a `Tx` handle with the same query methods, finished with `tx.commit()` or `tx.rollback()`.
+`db.begin()` returns a `Tx` handle with the same query methods, finished with `tx.commit()` or `tx.rollback()`. For the common case, `db.transaction(async |tx| { ... })` scopes a transaction to a closure - commit on `Ok`, rollback on `Err` - so a commit is never forgotten.
 
 ## Design
 

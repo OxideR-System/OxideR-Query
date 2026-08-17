@@ -43,8 +43,52 @@ where
     /// Begin a transaction, returning a [`Tx`] handle with the same query
     /// methods. Finish it with [`Tx::commit`] or [`Tx::rollback`]; dropping it
     /// without committing rolls back.
+    ///
+    /// For the common commit-on-success, rollback-on-error pattern, prefer the
+    /// scoped [`transaction`](Db::transaction) helper, which cannot forget to
+    /// commit.
     pub async fn begin(&self) -> Result<Tx<DB>, sqlx::Error> {
         Ok(Tx::new(self.pool.begin().await?))
+    }
+
+    /// Run `f` inside a transaction, committing if it returns `Ok` and rolling
+    /// back if it returns `Err`. The closure receives the [`Tx`] handle and runs
+    /// its queries on it; whatever it returns is returned here.
+    ///
+    /// This is the scoped analogue of Spring's `@Transactional`: the transaction
+    /// boundary is the closure, so a commit can never be forgotten and any early
+    /// return or error rolls back. The error type only needs to be convertible
+    /// from `sqlx::Error` (for the begin/commit/rollback steps), so a closure
+    /// returning `Result<_, sqlx::Error>` works directly.
+    ///
+    /// ```no_run
+    /// # async fn demo(db: &oxider_query_exec::SqliteDb) -> Result<(), sqlx::Error> {
+    /// # use oxider_query::prelude::*;
+    /// # #[derive(Entity)] #[oxider(table = "users")] struct User { id: i64, age: i64 }
+    /// db.transaction(async |tx| {
+    ///     tx.execute(User::insert().value(User::id, 1).value(User::age, 30)).await?;
+    ///     tx.execute(User::update().set(User::age, 31).filter(User::id.eq(1))).await?;
+    ///     Ok(())
+    /// })
+    /// .await
+    /// # }
+    /// ```
+    pub async fn transaction<F, T, E>(&self, f: F) -> Result<T, E>
+    where
+        F: AsyncFnOnce(&mut Tx<DB>) -> Result<T, E>,
+        E: From<sqlx::Error>,
+    {
+        let mut tx = self.begin().await?;
+        match f(&mut tx).await {
+            Ok(value) => {
+                tx.commit().await?;
+                Ok(value)
+            }
+            Err(err) => {
+                tx.rollback().await?;
+                Err(err)
+            }
+        }
     }
 
     /// Run a statement (typically INSERT/UPDATE/DELETE) and return the number of

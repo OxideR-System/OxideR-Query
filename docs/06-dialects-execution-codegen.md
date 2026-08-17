@@ -114,6 +114,31 @@ tx.commit().await?; // hoặc tx.rollback().await? để hủy toàn bộ
 Lưu ý: method của `Tx` nhận `&mut self` (transaction cần truy cập độc quyền), nên biến `tx` phải khai báo `mut`.
 Query truyền vào vẫn dialect-agnostic y hệt, `Tx` tự render theo backend.
 
+#### Transaction có phạm vi: `db.transaction(...)`
+
+`begin`/`commit`/`rollback` thủ công linh hoạt nhưng dễ quên `commit`, hoặc quên rollback khi có `?` trả sớm.
+`db.transaction(closure)` đóng khung việc đó: chạy closure trong transaction, **`commit` nếu closure trả `Ok`, `rollback` nếu trả `Err`** (kể cả `?` bail sớm).
+
+```rust
+let inserted: usize = db
+    .transaction(async |tx| {
+        tx.execute(User::insert().value(User::id, 1).value(User::age, 30)).await?;
+        tx.execute(User::update().set(User::age, 31).filter(User::id.eq(1))).await?;
+        let rows: Vec<User> = tx.fetch_all(User::query()).await?;
+        Ok::<_, sqlx::Error>(rows.len())
+    })
+    .await?;
+```
+
+Closure nhận `&mut Tx` và trả `Result<T, E>`; giá trị `T` được trả ra ngoài.
+`E` chỉ cần `From<sqlx::Error>` (cho bước begin/commit/rollback), nên closure trả `Result<_, sqlx::Error>` dùng thẳng được.
+Đây là kiểu khuyến nghị cho luồng "commit khi xong, rollback khi lỗi" thường gặp - không thể quên commit.
+
+> So với QueryDSL: QueryDSL không tự quản transaction, nó giao cho framework xung quanh.
+> Với Spring, `SQLQueryFactory` lấy connection qua `SpringConnectionProvider` (connection đã gắn transaction), còn ranh giới transaction do `@Transactional` bọc quanh một method - commit/rollback tự động theo method đó.
+> `db.transaction(closure)` chính là bản Rust của scope đó: ranh giới là closure thay vì annotation, commit/rollback tự động theo kết quả.
+> Cần điều khiển tay từng bước thì dùng `db.begin()` như trên.
+
 Nếu cần tự cầm SQL (log, driver khác, dialect tùy biến), bạn vẫn gọi `.render(&dialect)` để lấy `Rendered { sql, params }` rồi xử lý tay; `Db` chỉ là tiện ích phía trên.
 
 ### Thêm backend mới

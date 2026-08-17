@@ -152,3 +152,39 @@ async fn transaction_rollback_discards() {
     let rows: Vec<User> = db.fetch_all(User::query()).await.unwrap();
     assert!(rows.is_empty());
 }
+
+#[tokio::test]
+async fn scoped_transaction_commits_on_ok() {
+    let db = seed().await;
+
+    let count = db
+        .transaction(async |tx| {
+            tx.execute(new_user(1)).await?;
+            tx.execute(new_user(2)).await?;
+            let rows: Vec<User> = tx.fetch_all(User::query()).await?;
+            Ok::<_, sqlx::Error>(rows.len())
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+
+    let rows: Vec<User> = db.fetch_all(User::query()).await.unwrap();
+    assert_eq!(rows.len(), 2);
+}
+
+#[tokio::test]
+async fn scoped_transaction_rolls_back_on_err() {
+    let db = seed().await;
+
+    let result: Result<(), sqlx::Error> = db
+        .transaction(async |tx| {
+            tx.execute(new_user(1)).await?;
+            // Bail out: everything above must be discarded.
+            Err(sqlx::Error::RowNotFound)
+        })
+        .await;
+    assert!(matches!(result, Err(sqlx::Error::RowNotFound)));
+
+    let rows: Vec<User> = db.fetch_all(User::query()).await.unwrap();
+    assert!(rows.is_empty());
+}
