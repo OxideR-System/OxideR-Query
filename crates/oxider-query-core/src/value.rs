@@ -1,9 +1,24 @@
-//! Bound parameter values, Rust-to-value conversion, and ordering capability.
+//! Bound parameter values, Rust-to-value conversion, and the type-capability
+//! markers that gate which operators a column exposes.
+//!
+//! The marker traits mirror QueryDSL's expression class hierarchy: where Java
+//! gates operators by which subclass a path is (`NumberExpression` exposes
+//! arithmetic, `StringExpression` exposes `like`), OxideR gates them by a trait
+//! bound on the column's Rust type. The mapping is one-to-one:
+//!
+//! | QueryDSL class | OxideR bound |
+//! |----------------|--------------|
+//! | `SimpleExpression` | [`SqlType`] |
+//! | `ComparableExpression` | [`Orderable`] |
+//! | `NumberExpression` | [`Numeric`] |
+//! | `StringExpression` | `T = String` |
+//! | `DateTimeExpression` | [`Temporal`] |
+//! | `BooleanExpression` | `T = bool` |
 
 /// A concrete value bound as a query parameter.
 ///
-/// Self-contained for now so the core has no database dependency; the future
-/// exec layer bridges these to `sqlx` encoding.
+/// Self-contained so the core has no database dependency; the execution layer
+/// bridges these to `sqlx` encoding.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// Boolean parameter.
@@ -14,6 +29,14 @@ pub enum Value {
     Real(f64),
     /// Text parameter.
     Text(String),
+    /// Binary parameter.
+    Bytes(Vec<u8>),
+    /// Calendar date, as `YYYY-MM-DD`.
+    Date(String),
+    /// Wall-clock time, as `HH:MM:SS[.fff]`.
+    Time(String),
+    /// Timestamp, as `YYYY-MM-DD HH:MM:SS[.fff]`.
+    DateTime(String),
     /// SQL NULL.
     Null,
 }
@@ -21,52 +44,40 @@ pub enum Value {
 /// Converts a Rust value into a bound [`Value`].
 ///
 /// Implemented for scalar built-ins; downstream crates implement it for their
-/// own domain types (for example an enum stored as text or integer).
+/// own domain types (for example an enum stored as text or integer). Anything
+/// implementing this can be passed wherever an expression of its type is
+/// expected, and becomes a bind parameter rather than inlined SQL text.
 pub trait ToSqlValue {
     /// Produce the bound value for this Rust value.
     fn to_sql_value(&self) -> Value;
 }
 
-impl ToSqlValue for i16 {
-    fn to_sql_value(&self) -> Value {
-        Value::Int(*self as i64)
-    }
+macro_rules! to_sql_value {
+    ($($ty:ty => |$v:ident| $body:expr),* $(,)?) => {
+        $(impl ToSqlValue for $ty {
+            fn to_sql_value(&self) -> Value {
+                let $v = self;
+                $body
+            }
+        })*
+    };
 }
-impl ToSqlValue for i32 {
-    fn to_sql_value(&self) -> Value {
-        Value::Int(*self as i64)
-    }
+
+to_sql_value! {
+    i8 => |v| Value::Int(*v as i64),
+    i16 => |v| Value::Int(*v as i64),
+    i32 => |v| Value::Int(*v as i64),
+    i64 => |v| Value::Int(*v),
+    u8 => |v| Value::Int(*v as i64),
+    u16 => |v| Value::Int(*v as i64),
+    u32 => |v| Value::Int(*v as i64),
+    f32 => |v| Value::Real(*v as f64),
+    f64 => |v| Value::Real(*v),
+    bool => |v| Value::Bool(*v),
+    String => |v| Value::Text(v.clone()),
+    Vec<u8> => |v| Value::Bytes(v.clone()),
 }
-impl ToSqlValue for i64 {
-    fn to_sql_value(&self) -> Value {
-        Value::Int(*self)
-    }
-}
-impl ToSqlValue for f32 {
-    fn to_sql_value(&self) -> Value {
-        Value::Real(*self as f64)
-    }
-}
-impl ToSqlValue for f64 {
-    fn to_sql_value(&self) -> Value {
-        Value::Real(*self)
-    }
-}
-impl ToSqlValue for bool {
-    fn to_sql_value(&self) -> Value {
-        Value::Bool(*self)
-    }
-}
-impl ToSqlValue for String {
-    fn to_sql_value(&self) -> Value {
-        Value::Text(self.clone())
-    }
-}
-impl ToSqlValue for &str {
-    fn to_sql_value(&self) -> Value {
-        Value::Text((*self).to_string())
-    }
-}
+
 impl<T: ToSqlValue> ToSqlValue for Option<T> {
     fn to_sql_value(&self) -> Value {
         match self {
@@ -76,24 +87,137 @@ impl<T: ToSqlValue> ToSqlValue for Option<T> {
     }
 }
 
-/// Marker for Rust types whose columns support ordering comparisons
-/// (`<`, `>`, `<=`, `>=`, and ORDER BY). Numbers and strings qualify; booleans
-/// do not.
-pub trait Orderable {}
+/// Conversions into a bound value, for the places that take a value directly
+/// rather than an expression - notably the raw-SQL escape hatch.
+///
+/// Separate from [`ToSqlValue`] on purpose: `ToSqlValue` drives operand type
+/// checking, and adding `&str` to it would make every position whose expected
+/// type is still open ambiguous between `&str` and `String`.
+macro_rules! value_from {
+    ($($ty:ty => |$v:ident| $body:expr),* $(,)?) => {
+        $(impl From<$ty> for Value {
+            fn from(value: $ty) -> Value {
+                let $v = value;
+                $body
+            }
+        })*
+    };
+}
 
-impl Orderable for i16 {}
-impl Orderable for i32 {}
-impl Orderable for i64 {}
-impl Orderable for f32 {}
-impl Orderable for f64 {}
-impl Orderable for String {}
+value_from! {
+    bool => |v| Value::Bool(v),
+    i8 => |v| Value::Int(v as i64),
+    i16 => |v| Value::Int(v as i64),
+    i32 => |v| Value::Int(v as i64),
+    i64 => |v| Value::Int(v),
+    u8 => |v| Value::Int(v as i64),
+    u16 => |v| Value::Int(v as i64),
+    u32 => |v| Value::Int(v as i64),
+    f32 => |v| Value::Real(v as f64),
+    f64 => |v| Value::Real(v),
+    String => |v| Value::Text(v),
+    &str => |v| Value::Text(v.to_string()),
+    Vec<u8> => |v| Value::Bytes(v),
+}
 
-/// Marker for numeric Rust types, gating the arithmetic aggregates `SUM` and
-/// `AVG` (which are meaningless on text or booleans).
-pub trait Numeric {}
+/// `None` becomes SQL NULL.
+impl<T: Into<Value>> From<Option<T>> for Value {
+    fn from(value: Option<T>) -> Value {
+        match value {
+            Some(inner) => inner.into(),
+            None => Value::Null,
+        }
+    }
+}
 
-impl Numeric for i16 {}
-impl Numeric for i32 {}
-impl Numeric for i64 {}
-impl Numeric for f32 {}
-impl Numeric for f64 {}
+/// Marker for Rust types usable as a SQL column/expression type.
+///
+/// The base capability, matching QueryDSL's `SimpleExpression`: equality,
+/// null tests, `IN`, and use as a projected column. Every type that can be
+/// bound as a value is one, plus wrapper types the value layer understands.
+pub trait SqlType {}
+
+/// Marker for Rust types whose expressions support ordering comparisons
+/// (`<`, `>`, `<=`, `>=`, `BETWEEN`, `ORDER BY`, `MIN`/`MAX`).
+///
+/// Matches QueryDSL's `ComparableExpression`. Numbers, strings and temporals
+/// qualify; booleans and byte strings do not.
+pub trait Orderable: SqlType {}
+
+/// Marker for numeric Rust types, gating arithmetic and the arithmetic
+/// aggregates `SUM`/`AVG`. Matches QueryDSL's `NumberExpression`.
+pub trait Numeric: Orderable {}
+
+/// Marker for date/time Rust types, gating the date-part extraction and date
+/// arithmetic operators. Matches QueryDSL's `TemporalExpression`.
+pub trait Temporal: Orderable {}
+
+macro_rules! mark {
+    ($trait:ident for $($ty:ty),* $(,)?) => { $(impl $trait for $ty {})* };
+}
+
+mark!(SqlType for i8, i16, i32, i64, u8, u16, u32, f32, f64, bool, String, Vec<u8>);
+mark!(Orderable for i8, i16, i32, i64, u8, u16, u32, f32, f64, String);
+mark!(Numeric for i8, i16, i32, i64, u8, u16, u32, f32, f64);
+
+/// A nullable column type is usable wherever its inner type is, so `Option<T>`
+/// inherits the same capabilities.
+impl<T: SqlType> SqlType for Option<T> {}
+impl<T: Orderable> Orderable for Option<T> {}
+impl<T: Numeric> Numeric for Option<T> {}
+impl<T: Temporal> Temporal for Option<T> {}
+
+/// Temporal types, when the `chrono` feature is on.
+///
+/// Values bind as ISO-8601 text rather than as a driver-native date type. Every
+/// engine parses that form in a date context, the text is identical across the
+/// three dialects, and it keeps the core free of a driver dependency - the
+/// execution layer binds a `Value::Date` as whatever its driver prefers.
+#[cfg(feature = "chrono")]
+mod temporal {
+    use super::{Orderable, SqlType, Temporal, ToSqlValue, Value};
+    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+
+    /// `YYYY-MM-DD`.
+    const DATE: &str = "%Y-%m-%d";
+    /// `HH:MM:SS`, with a fractional part only when there is one.
+    const TIME: &str = "%H:%M:%S%.f";
+    /// `YYYY-MM-DD HH:MM:SS`, the form every engine accepts unquoted.
+    const DATE_TIME: &str = "%Y-%m-%d %H:%M:%S%.f";
+
+    impl ToSqlValue for NaiveDate {
+        fn to_sql_value(&self) -> Value {
+            Value::Date(self.format(DATE).to_string())
+        }
+    }
+
+    impl ToSqlValue for NaiveTime {
+        fn to_sql_value(&self) -> Value {
+            Value::Time(self.format(TIME).to_string())
+        }
+    }
+
+    impl ToSqlValue for NaiveDateTime {
+        fn to_sql_value(&self) -> Value {
+            Value::DateTime(self.format(DATE_TIME).to_string())
+        }
+    }
+
+    /// An instant binds with an explicit `+00:00`, so an engine storing it in a
+    /// zoned column does not reinterpret it in the session's own zone.
+    impl ToSqlValue for DateTime<Utc> {
+        fn to_sql_value(&self) -> Value {
+            Value::DateTime(self.format("%Y-%m-%d %H:%M:%S%.f+00:00").to_string())
+        }
+    }
+
+    macro_rules! temporal {
+        ($($ty:ty),* $(,)?) => {
+            $(impl SqlType for $ty {}
+              impl Orderable for $ty {}
+              impl Temporal for $ty {})*
+        };
+    }
+
+    temporal!(NaiveDate, NaiveTime, NaiveDateTime, DateTime<Utc>);
+}

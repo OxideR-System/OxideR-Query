@@ -8,3 +8,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"], optional = true }
+
+[features]
+default = ["chrono"]

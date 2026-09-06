@@ -16,6 +16,7 @@ oxider-query-macros.workspace = true
 
 [dev-dependencies]
 criterion = "0.5"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
 [[bench]]
 name = "render"
