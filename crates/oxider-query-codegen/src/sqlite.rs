@@ -5,7 +5,7 @@
 //! are mapped by type affinity to Rust types; a column that is not `NOT NULL`
 //! becomes `Option<_>`.
 
-use crate::pascal_case;
+use crate::identifier::{field_name, type_name};
 use sqlx::{Row, SqlitePool};
 use std::fmt::Write;
 
@@ -53,14 +53,21 @@ async fn generate_struct(pool: &SqlitePool, table: &str) -> Result<String, sqlx:
         if not_null == 0 && primary_key == 0 {
             rust_type = format!("Option<{rust_type}>");
         }
-        let _ = writeln!(fields, "    pub {name}: {rust_type},");
+
+        // The column name may not be a legal Rust identifier. When escaping it
+        // changes the name, the attribute carries the real one back.
+        let field = field_name(&name);
+        if let Some(column_name) = field.rename {
+            let _ = writeln!(fields, "    #[oxider(column = \"{column_name}\")]");
+        }
+        let _ = writeln!(fields, "    pub {}: {rust_type},", field.ident);
     }
 
     let mut out = String::new();
     let _ = write!(
         out,
         "#[derive(Entity)]\n#[oxider(table = \"{table}\")]\npub struct {} {{\n{fields}}}\n",
-        pascal_case(table)
+        type_name(table)
     );
     Ok(out)
 }

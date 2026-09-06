@@ -17,3 +17,5 @@ sqlite = ["sqlx/sqlite"]
 [dev-dependencies]
 tokio = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite"] }
+# Used only to assert the generated source parses as Rust.
+syn = { workspace = true }
