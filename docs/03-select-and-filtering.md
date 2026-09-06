@@ -1,168 +1,255 @@
+---
+id: select-and-filtering
+title: 3. SELECT và lọc dữ liệu
+sidebar_position: 3
+---
+
 # 3. SELECT và lọc dữ liệu
 
-Chương này bao trọn phần dựng câu SELECT một bảng: chọn cột, lọc, ghép điều kiện, sắp xếp, phân trang và query động.
-JOIN nhiều bảng ở [chương 4](./04-joins.md).
+Chương này đi qua toàn bộ mệnh đề của một câu SELECT một bảng.
+JOIN ở [chương 5](./05-joins.md), aggregate ở [chương 6](./06-aggregates-and-grouping.md).
 
-## 3.1. Vòng đời một query
-
-```rust
-User::query()        // Select<Cons<User, Nil>>  -- FROM "users"
-    .select(...)     // chọn cột (mặc định là tất cả)
-    .filter(...)     // WHERE
-    .group_by(...)   // GROUP BY   (chương 5)
-    .having(...)     // HAVING     (chương 5)
-    .order_by(...)   // ORDER BY
-    .limit(n)        // LIMIT
-    .offset(n)       // OFFSET
-    .render(&dialect) // -> Rendered { sql, params }
-```
-
-Mọi phương thức nhận `self` và trả về builder mới, nên nối chuỗi thoải mái.
-Ngoài `render`, còn `build()` trả về AST `SelectQuery` nếu bạn muốn tự xử lý.
-
-### Về thứ tự đọc so với SQL
-
-Query bắt đầu từ `User::query()` (tức FROM), khác với SQL viết `SELECT` trước.
-Đây là ràng buộc cần thiết cho type-safety: phải có bảng trong scope trước thì `User::id` mới tồn tại để compiler kiểm tra và gợi ý.
-Cùng lý do đó, QueryDSL (Java), LINQ (C#) và Diesel (Rust) đều đặt nguồn dữ liệu trước.
-Ngoài ra thứ tự `from -> where -> select` khớp đúng thứ tự SQL *xử lý* thật (FROM chạy trước SELECT), chỉ khác thứ tự SQL *viết ra*.
-
-Builder không ép thứ tự các mệnh đề còn lại, nên nếu muốn đọc gần SQL hơn, cứ đặt `select` ngay sau `query`:
+Mọi ví dụ dùng entity sau:
 
 ```rust
-User::query().select((User::id, User::name)).filter(User::age.ge(18));
-//  từ users,      chọn id, name,             lọc age >= 18
+#[derive(Entity)]
+#[oxider(table = "users")]
+struct User {
+    id: i64,
+    name: String,
+    email: Option<String>,
+    age: i32,
+    active: bool,
+    department_id: Option<i64>,
+    created_at: NaiveDateTime,
+}
 ```
 
-`filter` mang tên vậy vì `where` là từ khóa Rust, không đặt được làm tên method; `filter` cũng là quy ước idiomatic giống iterator.
+## 3.1. Projection
 
-## 3.2. Chọn cột (projection)
-
-Không gọi `select` thì projection mặc định là `SELECT *`.
-
-Chọn một cột hoặc một tuple từ 2 tới 6 phần tử:
+Không gọi `select` thì projection là `SELECT *`:
 
 ```rust
-User::query().select(User::id);                     // 1 cột
-User::query().select((User::id, User::name));       // 2 cột
-User::query().select((User::id, User::name, User::age)); // 3 cột, tối đa 6
+User::query();
+// SELECT * FROM "users"
 ```
 
-Phần tử projection có thể là cột hoặc aggregate (xem [chương 5](./05-aggregates-mutations-subqueries.md)), miễn là mọi bảng nó tham chiếu đều đang trong phạm vi query.
-
-## 3.3. Toán tử so sánh trên cột
-
-Tất cả toán tử là inherent method trên `Column`, nên gõ sai kiểu báo lỗi "method not found" hoặc "trait bound not satisfied" dễ đọc.
-
-| Nhóm | Phương thức | Điều kiện kiểu | SQL |
-|------|-------------|----------------|-----|
-| Bằng | `eq(v)`, `ne(v)` | mọi cột (`T: ToSqlValue`) | `=`, `<>` |
-| Thứ tự | `gt(v)`, `ge(v)`, `lt(v)`, `le(v)` | `T: Orderable` | `>`, `>=`, `<`, `<=` |
-| Chuỗi | `like(p)`, `contains(s)`, `starts_with(p)` | chỉ cột `String` | `LIKE` |
-| Khóa join | `eq_column(other)` | hai cột cùng `T` | `=` (chương 4) |
-| Subquery | `in_subquery(sub)`, `not_in_subquery(sub)` | subquery cùng `T` | `IN` / `NOT IN` (chương 5) |
-
-Mọi toán tử giá trị nhận `V: Into<T>`, nên `User::name.eq("Alice")` hợp lệ dù cột là `String`.
+`select` nhận một biểu thức, hoặc một tuple từ 2 tới 12 phần tử:
 
 ```rust
-User::query().filter(User::age.gt(21));
-// WHERE ("users"."age" > $1)   params: [21]
-
-User::query().filter(User::name.starts_with("Ng"));
-// WHERE ("users"."name" LIKE $1)   params: ["Ng%"]
+User::query().select((User::id, User::name, User::age));
+// SELECT "users"."id", "users"."name", "users"."age" FROM "users"
 ```
 
-`contains` bọc chuỗi thành `%s%`, `starts_with` thành `s%`.
-Lưu ý: các ký tự đặc biệt của LIKE (`%`, `_`) trong tham số chưa được escape; đây là bước gia cố text-ops dự kiến sau.
+Tuple một phần tử không tồn tại; viết thẳng biểu thức: `.select(User::id)`.
 
-## 3.4. Ghép điều kiện với `and` / `or`
-
-`Predicate` có `and` và `or`, mỗi cái nhận một predicate khác và gộp phạm vi bảng của cả hai:
+`add_select` nối thêm vào projection đã có, hữu ích khi dựng query theo nhánh:
 
 ```rust
-User::query()
-    .filter(User::age.ge(18).and(User::name.contains("nguyen")))
-    .render(&Postgres);
-// WHERE (("users"."age" >= $1) AND ("users"."name" LIKE $2))
-
-User::query()
-    .filter(User::age.lt(13).or(User::age.gt(65)))
-    .render(&Postgres);
-// WHERE (("users"."age" < $1) OR ("users"."age" > $2))
+let mut q = User::query().select(User::id);
+if with_name {
+    q = q.add_select(User::name);
+}
 ```
 
-Thứ tự param trong `params` khớp thứ tự xuất hiện trong SQL.
+Mọi biểu thức đều đặt được alias bằng `.alias(...)`:
 
-Gọi `filter` nhiều lần cũng được; các lời gọi nối với nhau bằng `AND`:
+```rust
+User::query().select(User::name.upper().alias("shouted"));
+// SELECT UPPER("users"."name") AS "shouted" FROM "users"
+```
+
+## 3.2. Lọc
+
+`filter` nhận một `Predicate`.
+Gọi nhiều lần thì các điều kiện được nối bằng `AND`:
 
 ```rust
 User::query()
     .filter(User::age.ge(18))
-    .filter(User::name.contains("le"));
-// WHERE ("users"."age" >= $1) AND ("users"."name" LIKE $2)
+    .filter(User::active.eq(true));
+// SELECT * FROM "users" WHERE "users"."age" >= $1 AND "users"."active" = $2
+```
+
+Ngoặc do độ ưu tiên quyết định, không phải do template.
+`OR` bên trong `AND` được bọc ngoặc, chiều ngược lại thì không:
+
+```rust
+User::query().filter(
+    User::age.lt(18).or(User::age.gt(65)).and(User::active.eq(true))
+);
+// WHERE ("users"."age" < $1 OR "users"."age" > $2) AND "users"."active" = $3
+
+User::query().filter(
+    User::age.lt(18).and(User::active.eq(true)).or(User::age.gt(65))
+);
+// WHERE "users"."age" < $1 AND "users"."active" = $2 OR "users"."age" > $3
+```
+
+Bảng độ ưu tiên nằm ở một chỗ duy nhất trong tầng dialect, nên không có toán tử nào tự quyết định ngoặc của riêng nó.
+
+Danh sách đầy đủ toán tử ở [chương 4](./04-operators.md).
+
+## 3.3. Điều kiện tùy chọn
+
+`filter_opt` bỏ qua điều kiện khi là `None`.
+Đây là cách dựng bộ lọc động mà không phải nối chuỗi:
+
+```rust
+fn search(name: Option<&str>, min_age: Option<i32>) -> Select<Only<User>> {
+    User::query()
+        .filter_opt(name.map(|n| User::name.contains(n)))
+        .filter_opt(min_age.map(|a| User::age.ge(a)))
+}
+```
+
+Khi cả hai đều `None`, kết quả là `SELECT * FROM "users"`.
+
+Nếu truyền thẳng `None` chứ không phải kết quả của `map`, trình biên dịch không suy được kiểu tập nguồn, nên phải chú thích:
+
+```rust
+let none: Option<Predicate<Only<User>>> = None;
+User::query().filter_opt(none);
+```
+
+`Only<E>` là bí danh của tập chỉ chứa một entity.
+
+Ở tầng biểu thức có `and_opt` và `or_opt` làm việc tương đương cho từng nhánh nhỏ.
+
+## 3.4. Danh sách rỗng trong `IN`
+
+`IN ()` không phải SQL hợp lệ.
+Một danh sách rỗng trở thành hằng đúng nghĩa, thay vì im lặng khớp mọi dòng:
+
+```rust
+let ids: Vec<i64> = Vec::new();
+User::query().filter(User::id.in_values(ids));
+// SELECT * FROM "users" WHERE 1 = 0
+
+User::query().filter(User::id.not_in_values(ids));
+// SELECT * FROM "users" WHERE 1 = 1
+```
+
+Danh sách không rỗng bind một tham số cho mỗi giá trị:
+
+```rust
+User::query().filter(User::id.in_values([1i64, 2, 3]));
+// SELECT * FROM "users" WHERE "users"."id" IN ($1, $2, $3)
 ```
 
 ## 3.5. Sắp xếp
 
-Gọi `asc()` hoặc `desc()` trên cột (cột phải `Orderable`) rồi đưa vào `order_by`:
+`order_by` nối thêm một tiêu chí, theo thứ tự gọi:
 
 ```rust
-User::query().order_by(User::age.desc());
-// ORDER BY "users"."age" DESC
-```
-
-Cần sắp theo nhiều cột thì gọi `order_by` nhiều lần theo thứ tự ưu tiên:
-
-```rust
-User::query()
-    .order_by(User::age.desc())
-    .order_by(User::name.asc());
+User::query().order_by(User::age.desc()).order_by(User::name.asc());
 // ORDER BY "users"."age" DESC, "users"."name" ASC
 ```
+
+`order_by_all` nhận một iterator, `order_by_opt` bỏ qua khi `None`.
+
+### Vị trí của NULL
+
+`nulls_first()` và `nulls_last()` là native trên PostgreSQL, và được giả lập trên MySQL và SQLite bằng một khóa sắp xếp phụ:
+
+```rust
+User::query().order_by(User::email.desc().nulls_last());
+```
+
+```sql
+-- PostgreSQL
+ORDER BY "users"."email" DESC NULLS LAST
+
+-- MySQL và SQLite
+ORDER BY CASE WHEN "users"."email" IS NULL THEN 1 ELSE 0 END, "users"."email" DESC
+```
+
+Giả lập cho kết quả sắp xếp giống hệt bản native, và điều đó được kiểm chứng bằng test chạy trên database thật chứ không chỉ so chuỗi SQL.
 
 ## 3.6. Phân trang
 
 ```rust
-User::query().limit(20).offset(40);
-// LIMIT 20 OFFSET 40
+User::query().limit(25);           // LIMIT 25
+User::query().offset(10);          // OFFSET 10
+User::query().page(2, 25);         // LIMIT 25 OFFSET 50
 ```
 
-`limit` và `offset` nhận `u64`.
+`page(page, size)` đánh số trang từ 1.
 
-## 3.7. Query động với `filter_opt`
+`OFFSET` không kèm `LIMIT` là hợp lệ trên PostgreSQL nhưng không trên MySQL và SQLite, nên hai engine đó nhận một `LIMIT` giữ chỗ:
 
-`filter_opt` nhận `Option<Predicate<_>>`.
-`Some` thì thêm điều kiện, `None` thì bỏ qua.
-Rất tiện để dựng bộ lọc từ input tùy chọn mà không cần nối chuỗi if/else:
+```sql
+-- PostgreSQL
+SELECT * FROM "users" OFFSET 10
+-- MySQL
+SELECT * FROM `users` LIMIT 18446744073709551615 OFFSET 10
+-- SQLite
+SELECT * FROM "users" LIMIT -1 OFFSET 10
+```
+
+## 3.7. DISTINCT
 
 ```rust
-struct UserFilter {
-    name: Option<String>,
-    min_age: Option<i32>,
-}
-
-fn search(f: UserFilter) -> Rendered {
-    User::query()
-        .filter_opt(f.name.map(|v| User::name.contains(v)))
-        .filter_opt(f.min_age.map(|v| User::age.ge(v)))
-        .render(&Postgres)
-}
+User::query().distinct().select(User::department_id);
+// SELECT DISTINCT "users"."department_id" FROM "users"
 ```
 
-Nếu cả hai `None`, câu SQL không có mệnh đề `WHERE`.
-
-## 3.8. Lấy AST thay vì SQL
-
-`build()` trả về `SelectQuery`, tức AST độc lập dialect.
-Dùng khi bạn muốn thanh tra, cache, hoặc render nhiều dialect từ cùng một AST:
+`distinct_on` chỉ có trên PostgreSQL và bị từ chối ở nơi khác:
 
 ```rust
-let ast = User::query().filter(User::age.ge(18)).build();
-let pg = ast.render(&Postgres);
-let my = ast.render(&MySql);
+let query = User::query()
+    .distinct_on(User::department_id)
+    .select((User::department_id, User::name))
+    .order_by(User::department_id.asc())
+    .order_by(User::name.asc());
+
+query.to_sql(&Postgres).unwrap();
+// SELECT DISTINCT ON ("users"."department_id") ... 
+
+query.to_sql(&MySql).unwrap_err();
+// UnsupportedFeature { dialect: "mysql", feature: "DISTINCT ON" }
 ```
+
+## 3.8. Khóa dòng
+
+```rust
+User::query().filter(User::id.eq(1)).for_update().skip_locked();
+// PostgreSQL và MySQL:
+//   SELECT * FROM "users" WHERE "users"."id" = $1 FOR UPDATE SKIP LOCKED
+// SQLite: bị từ chối, "row locking"
+```
+
+Có `for_update`, `for_share`, `for_no_key_update`, `for_key_share`, kèm hai modifier `no_wait()` và `skip_locked()`.
+Bốn dạng khóa không có ở mọi engine, và `no_wait`/`skip_locked` cần `Caps::lock_wait_policy`; xem [chương 11](./11-dialects.md).
+
+## 3.9. SELECT không có FROM
+
+```rust
+oxider_query::select_only(val(1i64).alias("one"));
+// SELECT $1 AS "one"
+```
+
+Trên các engine đòi hỏi một mệnh đề `FROM`, dialect tự thêm bảng giả của nó.
+
+`select_from_name("tên")` bắt đầu một SELECT từ một nguồn chỉ có tên, dùng để đọc CTE; xem [chương 9](./09-set-operations-and-ctes.md).
+
+## 3.10. Cột thời gian
+
+Với feature `chrono` (mặc định bật), so sánh trực tiếp với giá trị `chrono`:
+
+```rust
+let t = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap().and_hms_opt(9, 30, 0).unwrap();
+User::query().filter(User::created_at.ge(t));
+// SELECT * FROM "users" WHERE "users"."created_at" >= $1
+// params: [DateTime("2024-03-15 09:30:00")]
+```
+
+Giá trị thời gian bind dưới dạng text ISO-8601 chứ không phải kiểu native của driver.
+Mọi engine đọc được dạng này trong ngữ cảnh ngày giờ, chuỗi giống nhau trên cả ba dialect, và core không phải phụ thuộc vào driver nào.
+Lớp thực thi mới là nơi quyết định bind `Value::DateTime` thành kiểu gì.
+
+Toán tử ngày giờ ở [mục 4.5](./04-operators.md).
 
 ## Bước tiếp theo
 
-- Ghép nhiều bảng: [chương 4 - JOIN](./04-joins.md).
-- Thống kê, GROUP BY, mutation, subquery: [chương 5](./05-aggregates-mutations-subqueries.md).
+[Chương 4](./04-operators.md) liệt kê toàn bộ toán tử dùng được bên trong `filter` và `select`.
