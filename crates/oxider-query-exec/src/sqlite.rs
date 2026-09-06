@@ -12,7 +12,9 @@ use sqlx::Sqlite;
 /// Bind a rendered statement's parameters onto a sqlx query, in order.
 ///
 /// SQLite has no native boolean; sqlx encodes `bool` as an integer, matching how
-/// values round-trip. `NULL` binds as a typed `None` so sqlx sends SQL NULL.
+/// values round-trip. Temporal values bind as text in the ISO-8601 form SQLite's
+/// own date functions expect. `NULL` binds as a typed `None` so sqlx sends SQL
+/// NULL.
 macro_rules! bind_params {
     ($query:expr, $params:expr) => {{
         let mut query = $query;
@@ -22,6 +24,8 @@ macro_rules! bind_params {
                 Value::Int(i) => query.bind(*i),
                 Value::Real(r) => query.bind(*r),
                 Value::Text(s) => query.bind(s.clone()),
+                Value::Bytes(b) => query.bind(b.clone()),
+                Value::Date(s) | Value::Time(s) | Value::DateTime(s) => query.bind(s.clone()),
                 Value::Null => query.bind(Option::<i64>::None),
             };
         }

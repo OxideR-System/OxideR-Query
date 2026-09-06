@@ -1,6 +1,6 @@
 //! The [`Tx`] handle: a transaction exposing the same query methods as [`Db`].
 
-use crate::{ops, Backend};
+use crate::{ops, Backend, Result};
 use oxider_query_core::Renderable;
 use sqlx::{Database, FromRow, Transaction};
 
@@ -22,13 +22,13 @@ impl<DB: Backend> Tx<DB> {
     }
 
     /// Commit the transaction, making its changes durable.
-    pub async fn commit(self) -> Result<(), sqlx::Error> {
-        self.tx.commit().await
+    pub async fn commit(self) -> Result<()> {
+        Ok(self.tx.commit().await?)
     }
 
     /// Roll the transaction back, discarding its changes.
-    pub async fn rollback(self) -> Result<(), sqlx::Error> {
-        self.tx.rollback().await
+    pub async fn rollback(self) -> Result<()> {
+        Ok(self.tx.rollback().await?)
     }
 }
 
@@ -39,7 +39,7 @@ where
 {
     /// Run a statement (typically INSERT/UPDATE/DELETE) and return the number of
     /// affected rows.
-    pub async fn execute<Q>(&mut self, query: Q) -> Result<u64, sqlx::Error>
+    pub async fn execute<Q>(&mut self, query: Q) -> Result<u64>
     where
         Q: Renderable,
     {
@@ -47,7 +47,7 @@ where
     }
 
     /// Run a query and collect every row into `O`.
-    pub async fn fetch_all<O, Q>(&mut self, query: Q) -> Result<Vec<O>, sqlx::Error>
+    pub async fn fetch_all<O, Q>(&mut self, query: Q) -> Result<Vec<O>>
     where
         O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
         Q: Renderable,
@@ -56,7 +56,7 @@ where
     }
 
     /// Run a query expected to return exactly one row.
-    pub async fn fetch_one<O, Q>(&mut self, query: Q) -> Result<O, sqlx::Error>
+    pub async fn fetch_one<O, Q>(&mut self, query: Q) -> Result<O>
     where
         O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
         Q: Renderable,
@@ -65,7 +65,7 @@ where
     }
 
     /// Run a query that may return zero or one row.
-    pub async fn fetch_optional<O, Q>(&mut self, query: Q) -> Result<Option<O>, sqlx::Error>
+    pub async fn fetch_optional<O, Q>(&mut self, query: Q) -> Result<Option<O>>
     where
         O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
         Q: Renderable,

@@ -7,7 +7,7 @@
 //! statement, mapping result rows into any type implementing sqlx's `FromRow`.
 //!
 //! Because [`Db`] chooses the dialect from its backend, call sites never spell
-//! `.render(&Sqlite)`: they pass the query directly. Queries stay
+//! `.to_sql(&Sqlite)`: they pass the query directly. Queries stay
 //! dialect-agnostic, so pointing at a different database is a one-line change of
 //! the handle's type and touches no query code.
 //!
@@ -20,7 +20,7 @@
 //! `Database`, with no change to [`Db`] or [`Tx`].
 //!
 //! ```no_run
-//! # async fn demo() -> Result<(), sqlx::Error> {
+//! # async fn demo() -> oxider_query_exec::Result<()> {
 //! use oxider_query::prelude::*;
 //! use oxider_query_exec::SqliteDb;
 //!
@@ -29,7 +29,7 @@
 //! struct User { id: i64, name: String }
 //!
 //! let db = SqliteDb::connect("sqlite::memory:").await?;
-//! // No `.render(&Sqlite)` here - the handle's backend picks the dialect.
+//! // No `.to_sql(&Sqlite)` here - the handle's backend picks the dialect.
 //! let users: Vec<User> = db.fetch_all(User::query().filter(User::id.gt(0))).await?;
 //! # let _ = users;
 //! # Ok(())
@@ -41,6 +41,7 @@ use oxider_query_core::Dialect;
 use sqlx::Database;
 
 mod db;
+mod error;
 mod ops;
 mod tx;
 
@@ -48,6 +49,7 @@ mod tx;
 mod sqlite;
 
 pub use db::Db;
+pub use error::{Error, Result};
 pub use tx::Tx;
 
 /// A database backend: the SQL dialect to render for, plus how to bind rendered

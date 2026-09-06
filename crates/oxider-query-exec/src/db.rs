@@ -1,6 +1,6 @@
 //! The [`Db`] handle: a sqlx pool paired with its backend's dialect.
 
-use crate::{ops, Backend, Tx};
+use crate::{ops, Backend, Result, Tx};
 use oxider_query_core::Renderable;
 use sqlx::{Database, FromRow, Pool};
 
@@ -29,7 +29,7 @@ where
     }
 
     /// Open a pool from a connection URL.
-    pub async fn connect(url: &str) -> Result<Self, sqlx::Error> {
+    pub async fn connect(url: &str) -> Result<Self> {
         Ok(Self {
             pool: Pool::connect(url).await?,
         })
@@ -47,7 +47,7 @@ where
     /// For the common commit-on-success, rollback-on-error pattern, prefer the
     /// scoped [`transaction`](Db::transaction) helper, which cannot forget to
     /// commit.
-    pub async fn begin(&self) -> Result<Tx<DB>, sqlx::Error> {
+    pub async fn begin(&self) -> Result<Tx<DB>> {
         Ok(Tx::new(self.pool.begin().await?))
     }
 
@@ -58,25 +58,25 @@ where
     /// This is the scoped analogue of Spring's `@Transactional`: the transaction
     /// boundary is the closure, so a commit can never be forgotten and any early
     /// return or error rolls back. The error type only needs to be convertible
-    /// from `sqlx::Error` (for the begin/commit/rollback steps), so a closure
-    /// returning `Result<_, sqlx::Error>` works directly.
+    /// from [`Error`](crate::Error) (for the begin/commit/rollback steps), so a
+    /// closure returning [`crate::Result`] works directly.
     ///
     /// ```no_run
-    /// # async fn demo(db: &oxider_query_exec::SqliteDb) -> Result<(), sqlx::Error> {
+    /// # async fn demo(db: &oxider_query_exec::SqliteDb) -> oxider_query_exec::Result<()> {
     /// # use oxider_query::prelude::*;
     /// # #[derive(Entity)] #[oxider(table = "users")] struct User { id: i64, age: i64 }
     /// db.transaction(async |tx| {
-    ///     tx.execute(User::insert().value(User::id, 1).value(User::age, 30)).await?;
+    ///     tx.execute(User::insert().set(User::id, 1).set(User::age, 30)).await?;
     ///     tx.execute(User::update().set(User::age, 31).filter(User::id.eq(1))).await?;
     ///     Ok(())
     /// })
     /// .await
     /// # }
     /// ```
-    pub async fn transaction<F, T, E>(&self, f: F) -> Result<T, E>
+    pub async fn transaction<F, T, E>(&self, f: F) -> core::result::Result<T, E>
     where
-        F: AsyncFnOnce(&mut Tx<DB>) -> Result<T, E>,
-        E: From<sqlx::Error>,
+        F: AsyncFnOnce(&mut Tx<DB>) -> core::result::Result<T, E>,
+        E: From<crate::Error>,
     {
         let mut tx = self.begin().await?;
         match f(&mut tx).await {
@@ -93,7 +93,7 @@ where
 
     /// Run a statement (typically INSERT/UPDATE/DELETE) and return the number of
     /// affected rows.
-    pub async fn execute<Q>(&self, query: Q) -> Result<u64, sqlx::Error>
+    pub async fn execute<Q>(&self, query: Q) -> Result<u64>
     where
         Q: Renderable,
     {
@@ -101,7 +101,7 @@ where
     }
 
     /// Run a query and collect every row into `O`.
-    pub async fn fetch_all<O, Q>(&self, query: Q) -> Result<Vec<O>, sqlx::Error>
+    pub async fn fetch_all<O, Q>(&self, query: Q) -> Result<Vec<O>>
     where
         O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
         Q: Renderable,
@@ -110,7 +110,7 @@ where
     }
 
     /// Run a query expected to return exactly one row.
-    pub async fn fetch_one<O, Q>(&self, query: Q) -> Result<O, sqlx::Error>
+    pub async fn fetch_one<O, Q>(&self, query: Q) -> Result<O>
     where
         O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
         Q: Renderable,
@@ -119,7 +119,7 @@ where
     }
 
     /// Run a query that may return zero or one row.
-    pub async fn fetch_optional<O, Q>(&self, query: Q) -> Result<Option<O>, sqlx::Error>
+    pub async fn fetch_optional<O, Q>(&self, query: Q) -> Result<Option<O>>
     where
         O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
         Q: Renderable,
