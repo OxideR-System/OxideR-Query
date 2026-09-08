@@ -10,7 +10,8 @@
 
 use crate::ast::operator::Operator;
 use crate::dialect::template::{
-    t, Elem::Arg as A, Elem::Ident as I, Elem::Lit as L, Elem::Rest as R, Template,
+    t, Elem::Arg as A, Elem::Ident as I, Elem::Lit as L, Elem::Rest as R, Elem::TextLiteral as S,
+    Template,
 };
 
 /// The ANSI template for an aggregate, window, or sequence operator.
@@ -55,8 +56,9 @@ pub(crate) fn ansi(op: Operator) -> Option<Template> {
         // the builder can express the shape, so both are reported unsupported
         // instead of rendering into SQL that would not parse.
 
-        // Sequences. The name is spliced as a bare identifier, never as a bound
-        // parameter, because engines take it as a name rather than a value.
+        // Sequences. The name is an identifier rather than a bound parameter,
+        // because engines take it as a name rather than a value - so it is
+        // quoted as one, not spliced.
         NextVal => t![L("NEXT VALUE FOR "), I(0)],
         CurrVal => return None,
 
@@ -68,8 +70,10 @@ pub(crate) fn ansi(op: Operator) -> Option<Template> {
 pub(crate) fn postgres(op: Operator) -> Option<Template> {
     use Operator::*;
     Some(match op {
-        NextVal => t![L("NEXTVAL('"), I(0), L("')")],
-        CurrVal => t![L("CURRVAL('"), I(0), L("')")],
+        // PostgreSQL names the sequence with a string, so the name is rendered
+        // as an escaped literal rather than pasted between two quote marks.
+        NextVal => t![L("NEXTVAL("), S(0), L(")")],
+        CurrVal => t![L("CURRVAL("), S(0), L(")")],
         _ => return None,
     })
 }

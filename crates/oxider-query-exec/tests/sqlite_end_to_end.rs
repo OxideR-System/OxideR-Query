@@ -519,11 +519,46 @@ async fn a_transaction_that_returns_an_error_rolls_back() {
             Ok(())
         })
         .await;
-    assert!(outcome.is_err(), "the conflicting insert should fail");
+    // The caller's own error comes back, not whatever the rollback reported.
+    match outcome {
+        Err(oxider_query_exec::Error::Database(err)) => {
+            assert!(
+                err.to_string().contains("UNIQUE constraint failed"),
+                "the statement's error must survive the rollback, got: {err}"
+            );
+        }
+        other => panic!("expected the conflicting insert to fail, got {other:?}"),
+    }
 
     let rows: Vec<User> = db.fetch_all(User::query()).await.unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].age, 36, "the update must have rolled back");
+}
+
+#[tokio::test]
+async fn statements_the_engine_cannot_run_are_refused_before_reaching_it() {
+    let db = database().await;
+
+    // SQLite has no multi-table delete, so `USING` is refused here rather than
+    // failing at the database with a syntax error pointing at the wrong thing.
+    let outcome = db
+        .execute(User::delete().using(Post::table()).filter(User::id.eq(1)))
+        .await;
+    match outcome {
+        Err(oxider_query_exec::Error::Render(err)) => {
+            assert!(err.to_string().contains("DELETE ... USING"), "{err}");
+        }
+        other => panic!("expected a render error, got {other:?}"),
+    }
+
+    // An UPDATE assigning nothing would render `SET` with nothing after it.
+    let outcome = db.execute(User::update().filter(User::id.eq(1))).await;
+    match outcome {
+        Err(oxider_query_exec::Error::Render(err)) => {
+            assert!(err.to_string().contains("at least one assignment"), "{err}");
+        }
+        other => panic!("expected a render error, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -599,4 +634,35 @@ async fn an_offset_with_no_limit_still_skips_rows() {
         .await
         .unwrap();
     assert_eq!(rows.iter().map(|u| u.id).collect::<Vec<_>>(), vec![2, 3]);
+}
+
+#[tokio::test]
+async fn an_offset_position_search_agrees_with_the_native_function_it_emulates() {
+    // SQLite has no three-argument `INSTR`, so searching from an offset is
+    // emulated by searching the remainder and shifting the result back. The
+    // shift is only correct when a miss stays a miss, which is what the
+    // surrounding `CASE` is for: without it, an absent needle reported
+    // `start - 1` instead of 0, which reads as a match near the front.
+    let db = database().await;
+    add_user(&db, 1, "abcabc", None, 30, None).await.unwrap();
+
+    let found: One<i64> = db
+        .fetch_one(
+            User::query()
+                .filter(User::id.eq(1))
+                .select(User::name.index_of_from("bc", 3).alias("value")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.value, 5, "the second `bc` starts at position 5");
+
+    let missing: One<i64> = db
+        .fetch_one(
+            User::query()
+                .filter(User::id.eq(1))
+                .select(User::name.index_of_from("zz", 3).alias("value")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.value, 0, "an absent needle is 0, not an offset");
 }

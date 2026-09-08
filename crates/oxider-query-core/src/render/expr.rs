@@ -27,7 +27,9 @@ impl Renderer<'_> {
         if wrap {
             self.push("(");
         }
-        self.node(node)?;
+        // Every expression recursion funnels through here, so this is the one
+        // place the depth guard has to sit.
+        self.nested(|r| r.node(node))?;
         if wrap {
             self.push(")");
         }
@@ -39,11 +41,7 @@ impl Renderer<'_> {
         match node {
             Node::Column(col) => self.column_ref(col),
             Node::Param(value) => self.bind(value),
-            Node::NamedParam(_) => {
-                return Err(RenderError::Invalid(
-                    "a named parameter was not bound before rendering",
-                ))
-            }
+            Node::NamedParam(name) => return self.named(name),
             Node::Keyword(text) => self.push(text),
             Node::Star(table) => {
                 if let Some(table) = table {
@@ -149,16 +147,38 @@ impl Renderer<'_> {
                 Elem::Ident(index) => {
                     let arg = arg_at(op, args, index)?;
                     match arg {
-                        // A bare name, spliced verbatim: sequence names and
-                        // similar, which engines take as names rather than as
-                        // values.
-                        Node::Keyword(name) => self.push(name),
+                        // A name the engine takes as a name rather than as a
+                        // value, so it is quoted as an identifier - per
+                        // dot-separated part, so `app.orders_seq` stays
+                        // schema-qualified instead of becoming one odd name.
+                        Node::Keyword(name) => self.qualified_ident(name),
+                        other => self.expr(other)?,
+                    }
+                }
+                Elem::TextLiteral(index) => {
+                    let arg = arg_at(op, args, index)?;
+                    match arg {
+                        Node::Keyword(name) => self.text_literal(name),
                         other => self.expr(other)?,
                     }
                 }
                 Elem::Rest(from) => {
                     let rest = args.get(from as usize..).unwrap_or(&[]);
                     self.comma_separated(rest, |r, arg| r.expr(arg))?;
+                }
+                Elem::Joined(separator) => {
+                    if args.is_empty() {
+                        return Err(RenderError::MissingArgument {
+                            operator: op,
+                            index: 0,
+                        });
+                    }
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            self.push(separator);
+                        }
+                        self.expr_within(arg, own)?;
+                    }
                 }
             }
         }
@@ -207,7 +227,7 @@ impl Renderer<'_> {
                         self.order_terms(order_by)?;
                     }
                 }
-                Elem::Ident(index) => {
+                Elem::Ident(index) | Elem::TextLiteral(index) => {
                     let arg = arg_at(func, args, index)?;
                     self.expr(arg)?;
                 }
@@ -217,6 +237,17 @@ impl Renderer<'_> {
                     }
                     let rest = args.get(from as usize..).unwrap_or(&[]);
                     self.comma_separated(rest, |r, arg| r.expr(arg))?;
+                }
+                // No aggregate is an associative connective, so this cannot be
+                // reached from the template tables; render it consistently
+                // anyway rather than silently emitting nothing.
+                Elem::Joined(separator) => {
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            self.push(separator);
+                        }
+                        self.expr(arg)?;
+                    }
                 }
             }
         }

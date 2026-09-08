@@ -14,10 +14,21 @@ use crate::typed::ops_compare::Merge;
 use crate::typed::selection::AnyExpr;
 use core::marker::PhantomData;
 
+/// A window with no frame clause. The state every window starts in.
+pub struct NoFrame;
+
+/// A window carrying a frame clause.
+///
+/// `EXCLUDE` modifies a frame, so [`exclude`](Window::exclude) exists only
+/// here. Asking to exclude rows from a window that has no frame used to be
+/// silently dropped, leaving the window over the whole partition - a different
+/// answer, arrived at without a word.
+pub struct Framed;
+
 /// A window specification under construction.
-pub struct Window<S> {
+pub struct Window<S, Fr = NoFrame> {
     spec: InlineWindow,
-    _marker: PhantomData<fn() -> S>,
+    _marker: PhantomData<fn() -> (S, Fr)>,
 }
 
 impl Default for Window<Nil> {
@@ -36,8 +47,8 @@ impl Window<Nil> {
     }
 }
 
-impl<S> Window<S> {
-    fn retype<S2>(self) -> Window<S2> {
+impl<S, Fr> Window<S, Fr> {
+    fn retype<S2, Fr2>(self) -> Window<S2, Fr2> {
         Window {
             spec: self.spec,
             _marker: PhantomData,
@@ -45,7 +56,7 @@ impl<S> Window<S> {
     }
 
     /// Add a `PARTITION BY` expression. Any expression type may partition.
-    pub fn partition_by<X>(mut self, expr: X) -> Window<Merge<S, X::Sources>>
+    pub fn partition_by<X>(mut self, expr: X) -> Window<Merge<S, X::Sources>, Fr>
     where
         X: AnyExpr,
         S: Concat<X::Sources>,
@@ -55,7 +66,7 @@ impl<S> Window<S> {
     }
 
     /// Add an `ORDER BY` term.
-    pub fn order_by<S2>(mut self, term: Order<S2>) -> Window<Merge<S, S2>>
+    pub fn order_by<S2>(mut self, term: Order<S2>) -> Window<Merge<S, S2>, Fr>
     where
         S: Concat<S2>,
     {
@@ -64,36 +75,33 @@ impl<S> Window<S> {
     }
 
     /// Set a `ROWS` frame.
-    pub fn rows(self, start: FrameBound, end: Option<FrameBound>) -> Self {
+    pub fn rows(self, start: FrameBound, end: Option<FrameBound>) -> Window<S, Framed> {
         self.frame(FrameUnit::Rows, start, end)
     }
 
     /// Set a `RANGE` frame.
-    pub fn range(self, start: FrameBound, end: Option<FrameBound>) -> Self {
+    pub fn range(self, start: FrameBound, end: Option<FrameBound>) -> Window<S, Framed> {
         self.frame(FrameUnit::Range, start, end)
     }
 
     /// Set a `GROUPS` frame.
-    pub fn groups(self, start: FrameBound, end: Option<FrameBound>) -> Self {
+    pub fn groups(self, start: FrameBound, end: Option<FrameBound>) -> Window<S, Framed> {
         self.frame(FrameUnit::Groups, start, end)
     }
 
-    fn frame(mut self, unit: FrameUnit, start: FrameBound, end: Option<FrameBound>) -> Self {
+    fn frame(
+        mut self,
+        unit: FrameUnit,
+        start: FrameBound,
+        end: Option<FrameBound>,
+    ) -> Window<S, Framed> {
         self.spec.frame = Some(Frame {
             unit,
             start,
             end,
             exclusion: None,
         });
-        self
-    }
-
-    /// Add an `EXCLUDE` clause to the frame. Ignored when there is no frame.
-    pub fn exclude(mut self, exclusion: FrameExclusion) -> Self {
-        if let Some(frame) = self.spec.frame.as_mut() {
-            frame.exclusion = Some(exclusion);
-        }
-        self
+        self.retype()
     }
 
     /// Consume into the AST definition, for a query's `WINDOW` clause.
@@ -102,9 +110,22 @@ impl<S> Window<S> {
     }
 }
 
+impl<S> Window<S, Framed> {
+    /// Add an `EXCLUDE` clause to the frame.
+    pub fn exclude(mut self, exclusion: FrameExclusion) -> Self {
+        let frame = self
+            .spec
+            .frame
+            .as_mut()
+            .expect("a Framed window always carries a frame");
+        frame.exclusion = Some(exclusion);
+        self
+    }
+}
+
 impl<S, T> Aggregate<S, T> {
     /// Turn this aggregate into a window function over `window`.
-    pub fn over<S2>(self, window: Window<S2>) -> Expr<Merge<S, S2>, T>
+    pub fn over<S2, Fr>(self, window: Window<S2, Fr>) -> Expr<Merge<S, S2>, T>
     where
         S: Concat<S2>,
     {

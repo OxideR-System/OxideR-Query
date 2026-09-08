@@ -162,6 +162,32 @@ fn an_update_from_another_table_reads_that_tables_columns() {
 }
 
 #[test]
+fn an_update_from_another_table_is_refused_where_the_engine_has_no_such_form() {
+    // MySQL spells this as a multi-table UPDATE and SQLite has no form at all,
+    // so the Postgres shape would be a syntax error at the database.
+    let statement = || {
+        User::update()
+            .from(Department::table())
+            .set(User::name, Department::name)
+            .filter(User::department_id.eq(Department::id))
+    };
+    assert_rejected(statement(), &MySql, "UPDATE ... FROM");
+    assert_sql_only(
+        statement(),
+        &Sqlite,
+        r#"UPDATE "users" SET "name" = "departments"."name" FROM "departments" WHERE "users"."department_id" = "departments"."id""#,
+    );
+}
+
+#[test]
+fn an_update_that_assigns_nothing_is_refused_rather_than_rendered() {
+    // `UPDATE t SET WHERE ...` is a syntax error, and an UPDATE assigning
+    // nothing cannot be what the caller meant either way.
+    let statement = User::update().filter(User::id.eq(1));
+    assert_rejected(statement, &Postgres, "at least one assignment");
+}
+
+#[test]
 fn a_delete_with_no_condition_removes_every_row() {
     let statement = Post::delete();
     assert_sql_only(statement, &Postgres, r#"DELETE FROM "posts""#);
@@ -178,6 +204,19 @@ fn a_delete_using_another_table_qualifies_the_rows_to_remove() {
         r#"DELETE FROM "posts" USING "users" WHERE "posts"."user_id" = "users"."id" AND "users"."active" = $1"#,
         &[flag(false)],
     );
+}
+
+#[test]
+fn a_delete_using_another_table_is_refused_where_the_engine_has_no_such_form() {
+    // MySQL's `USING` lists every table including the target, so the Postgres
+    // shape is ERROR 1109 there; SQLite has no multi-table delete at all.
+    let statement = || {
+        Post::delete()
+            .using(User::table())
+            .filter(Post::user_id.eq(User::id))
+    };
+    assert_rejected(statement(), &MySql, "DELETE ... USING");
+    assert_rejected(statement(), &Sqlite, "DELETE ... USING");
 }
 
 #[test]

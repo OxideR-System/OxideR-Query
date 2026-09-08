@@ -8,25 +8,34 @@ use crate::ast::query::{
     Source,
 };
 use crate::dialect::Dialect;
-use crate::render::{RenderResult, Rendered, Renderer};
+use crate::render::{Bindings, RenderResult, Rendered, Renderer};
 
-/// Render a SELECT for a dialect, returning its SQL and bound parameters.
-pub fn render_select_into(query: &SelectAst, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-    let mut renderer = Renderer::new(dialect);
+/// Render a SELECT for a dialect, resolving named parameters from `bindings`.
+pub fn render_select_into(
+    query: &SelectAst,
+    dialect: &dyn Dialect,
+    bindings: &Bindings,
+) -> RenderResult<Rendered> {
+    let mut renderer = Renderer::new(dialect, bindings);
     renderer.select(query)?;
     Ok(renderer.finish())
 }
 
 impl Renderer<'_> {
     /// Render a complete SELECT statement.
+    ///
+    /// Subqueries, derived tables, CTEs and set-operation branches all recurse
+    /// back through here, so it carries the same depth guard the expression
+    /// walk does.
     pub(crate) fn select(&mut self, query: &SelectAst) -> RenderResult {
-        if !query.with.is_empty() {
-            self.with_clause(query)?;
-        }
-        self.select_body(query)?;
-        self.set_operations(query)?;
-        self.tail(query)?;
-        Ok(())
+        self.nested(|r| {
+            if !query.with.is_empty() {
+                r.with_clause(query)?;
+            }
+            r.select_body(query)?;
+            r.set_operations(query)?;
+            r.tail(query)
+        })
     }
 
     /// Render the `WITH` clause.
@@ -197,11 +206,19 @@ impl Renderer<'_> {
             self.push(op.as_sql());
             self.push(" ");
             let wrap = caps.wrap_set_op_branches;
+            // A branch's own WITH, ORDER BY, LIMIT and locking belong to the
+            // branch, and only parentheses keep them there. Without them the
+            // clause either fails to parse (`... UNION SELECT ... LIMIT 5
+            // LIMIT 3`) or silently rebinds to the whole set operation, so a
+            // dialect that does not wrap branches has to refuse instead.
+            if !wrap && branch_has_own_tail(branch) {
+                return self.unsupported(
+                    "WITH, ORDER BY, LIMIT, OFFSET or locking inside a set-operation branch",
+                );
+            }
             if wrap {
                 self.push("(");
             }
-            // A branch's own ORDER BY and LIMIT belong to the branch; the outer
-            // query's belong to the whole set operation and are rendered after.
             self.select(branch)?;
             if wrap {
                 self.push(")");
@@ -307,6 +324,16 @@ impl Renderer<'_> {
         }
         Ok(())
     }
+}
+
+/// Whether a set-operation branch carries clauses that only stay inside the
+/// branch when it is parenthesised.
+fn branch_has_own_tail(branch: &SelectAst) -> bool {
+    !branch.with.is_empty()
+        || !branch.order.is_empty()
+        || branch.limit.is_some()
+        || branch.offset.is_some()
+        || branch.lock.is_some()
 }
 
 /// `CASE WHEN <expr> IS NULL THEN <when_null> ELSE <when_present> END`, the

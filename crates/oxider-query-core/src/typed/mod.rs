@@ -46,5 +46,5 @@ pub use ops_text::TextOps;
 pub use selection::{AnyExpr, ExprExt, SelectionIn};
 pub use window::{
     cume_dist, dense_rank, first_value, lag, last_value, lead, nth_value, ntile, percent_rank,
-    rank, row_number, Window,
+    rank, row_number, Framed, NoFrame, Window,
 };

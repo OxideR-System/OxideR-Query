@@ -231,6 +231,27 @@ pub trait TextOps: IntoExpr<String> + Sized {
         ))
     }
 
+    /// The 1-based position of `needle` in `self` at or after `start`, or 0
+    /// when absent.
+    ///
+    /// Engines without a three-argument position function get it built from
+    /// substring plus search, guarded so "not found" stays 0 rather than
+    /// becoming `start - 1`.
+    fn index_of_from<R>(self, needle: R, start: i64) -> Expr<Merge<Self::Sources, R::Sources>, i64>
+    where
+        R: IntoExpr<String>,
+        Self::Sources: Concat<R::Sources>,
+    {
+        Expr::new(Node::op(
+            Operator::IndexOfFrom,
+            [
+                self.into_expr_node(),
+                needle.into_expr_node(),
+                int_node(start),
+            ],
+        ))
+    }
+
     /// The leftmost `n` characters.
     fn left(self, n: i64) -> Expr<Self::Sources, String> {
         Expr::new(Node::op(

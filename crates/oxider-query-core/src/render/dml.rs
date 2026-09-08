@@ -6,25 +6,37 @@ use crate::ast::dml::{
 use crate::ast::node::Node;
 use crate::ast::query::Source;
 use crate::dialect::Dialect;
-use crate::render::{RenderResult, Rendered, Renderer};
+use crate::render::{Bindings, RenderResult, Rendered, Renderer};
 
 /// Render an INSERT for a dialect.
-pub fn render_insert(statement: &InsertAst, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-    let mut renderer = Renderer::new(dialect);
+pub fn render_insert(
+    statement: &InsertAst,
+    dialect: &dyn Dialect,
+    bindings: &Bindings,
+) -> RenderResult<Rendered> {
+    let mut renderer = Renderer::new(dialect, bindings);
     renderer.insert(statement)?;
     Ok(renderer.finish())
 }
 
 /// Render an UPDATE for a dialect.
-pub fn render_update(statement: &UpdateAst, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-    let mut renderer = Renderer::new(dialect);
+pub fn render_update(
+    statement: &UpdateAst,
+    dialect: &dyn Dialect,
+    bindings: &Bindings,
+) -> RenderResult<Rendered> {
+    let mut renderer = Renderer::new(dialect, bindings);
     renderer.update(statement)?;
     Ok(renderer.finish())
 }
 
 /// Render a DELETE for a dialect.
-pub fn render_delete(statement: &DeleteAst, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-    let mut renderer = Renderer::new(dialect);
+pub fn render_delete(
+    statement: &DeleteAst,
+    dialect: &dyn Dialect,
+    bindings: &Bindings,
+) -> RenderResult<Rendered> {
+    let mut renderer = Renderer::new(dialect, bindings);
     renderer.delete(statement)?;
     Ok(renderer.finish())
 }
@@ -115,6 +127,17 @@ impl Renderer<'_> {
 
     /// Render an UPDATE statement.
     fn update(&mut self, statement: &UpdateAst) -> RenderResult {
+        // `SET` with nothing after it is a syntax error at the database, and
+        // an UPDATE assigning nothing cannot be what the caller meant.
+        if statement.assignments.is_empty() {
+            return Err(crate::render::RenderError::Invalid(
+                "an UPDATE needs at least one assignment",
+            ));
+        }
+        if !statement.from.is_empty() && !self.dialect().caps().update_from {
+            return self.unsupported("UPDATE ... FROM");
+        }
+
         self.push("UPDATE ");
         self.table_name(&statement.table);
         self.push(" SET ");
@@ -134,6 +157,10 @@ impl Renderer<'_> {
 
     /// Render a DELETE statement.
     fn delete(&mut self, statement: &DeleteAst) -> RenderResult {
+        if !statement.using.is_empty() && !self.dialect().caps().delete_using {
+            return self.unsupported("DELETE ... USING");
+        }
+
         self.push("DELETE FROM ");
         self.table_name(&statement.table);
 
@@ -151,6 +178,11 @@ impl Renderer<'_> {
 
     /// Render `SET`-style assignments.
     fn assignments(&mut self, assignments: &[Assignment]) -> RenderResult {
+        if assignments.is_empty() {
+            return Err(crate::render::RenderError::Invalid(
+                "a SET clause needs at least one assignment",
+            ));
+        }
         self.comma_separated(assignments, |r, assignment| {
             r.ident(assignment.column);
             r.push(" = ");

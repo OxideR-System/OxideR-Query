@@ -5,7 +5,7 @@ mod common;
 
 use common::*;
 use oxider_query::prelude::*;
-use oxider_query::{CastKind, MySql, Postgres, Sqlite};
+use oxider_query::{next_val, select_only, CastKind, MySql, Postgres, Sqlite};
 
 #[test]
 fn a_literal_search_escapes_the_users_wildcards() {
@@ -86,6 +86,55 @@ fn string_functions_differ_by_dialect_but_mean_the_same_thing() {
         &Sqlite,
         r#"SELECT SUBSTR("users"."name", ?, ?) FROM "users""#,
         &[int(2), int(5)],
+    );
+}
+
+#[test]
+fn a_position_search_from_an_offset_reports_zero_when_the_needle_is_absent() {
+    // The emulations add the offset back, which must not turn "not found" into
+    // a match at `start - 1`, so both guard on the inner result.
+    let query = User::query().select(User::name.index_of_from("@", 3));
+    assert_sql(
+        query.clone(),
+        &Postgres,
+        r#"SELECT (CASE WHEN POSITION($1 IN SUBSTRING("users"."name" FROM $2)) = 0 THEN 0 ELSE POSITION($3 IN SUBSTRING("users"."name" FROM $4)) + $5 - 1 END) FROM "users""#,
+        &[text("@"), int(3), text("@"), int(3), int(3)],
+    );
+    // MySQL has the three-argument form natively, so nothing is emulated.
+    assert_sql(
+        query.clone(),
+        &MySql,
+        "SELECT LOCATE(?, `users`.`name`, ?) FROM `users`",
+        &[text("@"), int(3)],
+    );
+    assert_sql(
+        query,
+        &Sqlite,
+        r#"SELECT (CASE WHEN INSTR(SUBSTR("users"."name", ?), ?) = 0 THEN 0 ELSE INSTR(SUBSTR("users"."name", ?), ?) + ? - 1 END) FROM "users""#,
+        &[int(3), text("@"), int(3), text("@"), int(3)],
+    );
+}
+
+#[test]
+fn a_sequence_name_is_quoted_rather_than_spliced() {
+    // The one place the renderer builds SQL text from a name rather than
+    // binding it. PostgreSQL wants a string, ANSI wants an identifier, and
+    // neither may be pasted in raw.
+    assert_sql_only(
+        select_only(next_val::<i64>("orders_seq")),
+        &Postgres,
+        "SELECT NEXTVAL('orders_seq')",
+    );
+    assert_sql_only(
+        select_only(next_val::<i64>("app.orders_seq")),
+        &Postgres,
+        "SELECT NEXTVAL('app.orders_seq')",
+    );
+    // A quote in the name is escaped instead of closing the literal early.
+    assert_sql_only(
+        select_only(next_val::<i64>("s'); DROP TABLE users; --")),
+        &Postgres,
+        "SELECT NEXTVAL('s''); DROP TABLE users; --')",
     );
 }
 

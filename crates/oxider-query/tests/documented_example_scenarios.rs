@@ -259,3 +259,28 @@ fn dialect_chapter_shows_what_a_refusal_says() {
         .expect_err("MySQL has no DISTINCT ON");
     assert_eq!(err.to_string(), "mysql does not support DISTINCT ON");
 }
+
+/// Chapter 16: a value stays a value however it is spelled.
+///
+/// The claim the security chapter makes is that untrusted text reaches the
+/// engine as a parameter and never as SQL text, so the classic payload is the
+/// example: it comes back verbatim in `params` and leaves `sql` untouched.
+#[test]
+fn security_chapter_shows_a_payload_staying_a_parameter() {
+    let hostile = "'; DROP TABLE users; --";
+    assert_sql(
+        User::query().filter(User::name.eq(hostile)),
+        &Postgres,
+        r#"SELECT * FROM "users" WHERE "users"."name" = $1"#,
+        &[text(hostile)],
+    );
+
+    // A wildcard in a `contains` search is escaped rather than honoured, so
+    // searching for `50%` cannot match `500 units`.
+    assert_sql(
+        User::query().filter(User::name.contains("50%")),
+        &Postgres,
+        r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1 ESCAPE '!'"#,
+        &[text("%50!%%")],
+    );
+}

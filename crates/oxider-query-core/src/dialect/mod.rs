@@ -71,6 +71,19 @@ pub struct Caps {
     pub recursive_cte: bool,
     /// `RETURNING` on INSERT/UPDATE/DELETE.
     pub returning: bool,
+    /// `UPDATE ... FROM <other source>`, so an update may read another table.
+    ///
+    /// A PostgreSQL extension SQLite adopted in 3.33. MySQL spells the same
+    /// thing `UPDATE t1 JOIN t2 SET ...`, which is a different statement shape
+    /// rather than a different clause, so it is refused here instead.
+    pub update_from: bool,
+    /// `DELETE ... USING <other source>`, so a delete may be qualified by
+    /// another table.
+    ///
+    /// PostgreSQL only among the built-in dialects. SQLite has no multi-table
+    /// delete at all, and MySQL requires the target table to appear in the
+    /// `USING` list as well, which this clause does not express.
+    pub delete_using: bool,
     /// `RIGHT JOIN`.
     pub right_join: bool,
     /// `FULL JOIN`.
@@ -107,6 +120,8 @@ impl Caps {
         cte: true,
         recursive_cte: true,
         returning: false,
+        update_from: false,
+        delete_using: false,
         right_join: true,
         full_join: true,
         intersect: true,

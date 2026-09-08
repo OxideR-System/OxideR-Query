@@ -8,7 +8,7 @@ use crate::ast::dml::DeleteAst;
 use crate::ast::node::{Node, TableRef};
 use crate::ast::query::Source;
 use crate::dialect::Dialect;
-use crate::render::{render_delete, RenderResult, Renderable, Rendered};
+use crate::render::{render_delete, Bindings, RenderResult, Renderable, Rendered};
 use crate::source::{Cons, ContainsAll, Nil};
 use crate::typed::expr::Predicate;
 use crate::typed::selection::SelectionIn;
@@ -18,6 +18,7 @@ use core::marker::PhantomData;
 /// A DELETE statement under construction.
 pub struct Delete<E, S = Cons<E, Nil>> {
     ast: DeleteAst,
+    bindings: Bindings,
     _marker: PhantomData<fn() -> (E, S)>,
 }
 
@@ -31,6 +32,7 @@ impl<E, S> Delete<E, S> {
                 filter: None,
                 returning: Vec::new(),
             },
+            bindings: Bindings::new(),
             _marker: PhantomData,
         }
     }
@@ -38,6 +40,7 @@ impl<E, S> Delete<E, S> {
     fn retype<S2>(self) -> Delete<E, S2> {
         Delete {
             ast: self.ast,
+            bindings: self.bindings,
             _marker: PhantomData,
         }
     }
@@ -88,13 +91,26 @@ impl<E, S> Delete<E, S> {
 
     /// Render for a dialect.
     pub fn to_sql(&self, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-        render_delete(&self.ast, dialect)
+        render_delete(&self.ast, dialect, &self.bindings)
+    }
+
+    /// Give a named parameter its value.
+    ///
+    /// The counterpart to [`param`](crate::typed::param): a statement is built
+    /// once with placeholders and rendered as often as needed, one value set at
+    /// a time. Binding the same name twice keeps the last value, and a name
+    /// left unbound is a render error rather than a silently missing value.
+    /// Bindings resolve for the whole statement, so a parameter inside a
+    /// subquery is bound here too.
+    pub fn bind(mut self, name: &'static str, value: impl Into<crate::value::Value>) -> Self {
+        self.bindings = core::mem::take(&mut self.bindings).set(name, value);
+        self
     }
 }
 
 impl<E, S> Renderable for Delete<E, S> {
     fn render_with(self, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-        render_delete(&self.ast, dialect)
+        render_delete(&self.ast, dialect, &self.bindings)
     }
 }
 
@@ -102,6 +118,7 @@ impl<E, S> Clone for Delete<E, S> {
     fn clone(&self) -> Self {
         Delete {
             ast: self.ast.clone(),
+            bindings: self.bindings.clone(),
             _marker: PhantomData,
         }
     }

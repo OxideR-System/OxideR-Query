@@ -99,6 +99,67 @@
 //! User::query().filter(User::department_id.in_subquery(sub));
 //! ```
 //!
+//! A lock wait policy with no lock to modify. This one is not a typo but a
+//! silent wrong answer: it used to render a query with no locking at all, so a
+//! queue worker asking to skip locked rows quietly processed rows another
+//! worker already held.
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "jobs")]
+//! # struct Job { id: i64 }
+//! Job::query().skip_locked(); // `skip_locked` exists only on a locked query
+//! ```
+//!
+//! ```
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "jobs")]
+//! # struct Job { id: i64 }
+//! // With the lock, it is the queue-worker query it was meant to be.
+//! let sql = Job::query().limit(1).for_update().skip_locked().to_sql(&Postgres).unwrap().sql;
+//! assert!(sql.ends_with("FOR UPDATE SKIP LOCKED"));
+//! ```
+//!
+//! An `EXCLUDE` on a window that has no frame to exclude from:
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "posts")]
+//! # struct Post { id: i64, views: i64 }
+//! Window::new().exclude(FrameExclusion::CurrentRow); // no frame was set
+//! ```
+//!
+//! Mixing the three INSERT spellings, each of which would have discarded part
+//! of what was already written:
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "users")]
+//! # struct User { id: i64, name: String }
+//! // `columns` would reset the row `set` just built.
+//! User::insert().set(User::name, "ada").columns((User::id,));
+//! ```
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "users")]
+//! # struct User { id: i64, name: String }
+//! // The query supplies the rows, so the value here had nowhere to go.
+//! User::insert().from_query(User::query().select(User::name)).set(User::name, "ada");
+//! ```
+//!
+//! A table name built at runtime. Identifiers are `&'static str` precisely so
+//! that a string an application assembled cannot become one, which is what
+//! keeps identifier injection off the table; values go through the bind list
+//! instead.
+//!
+//! ```compile_fail
+//! # use oxider_query::prelude::*;
+//! let untrusted = "users";
+//! let name = format!("t_{untrusted}");
+//! select_from_name(&name); // `name` does not live long enough
+//! ```
+//!
 //! Ordering a type that has no order:
 //!
 //! ```compile_fail

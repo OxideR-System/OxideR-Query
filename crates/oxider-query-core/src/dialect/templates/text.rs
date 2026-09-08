@@ -33,8 +33,17 @@ pub(crate) fn ansi(op: Operator) -> Option<Template> {
         // POSITION takes the needle first, the haystack second, which is the
         // reverse of the argument order the builder uses.
         IndexOf => t![L("POSITION("), A(1), L(" IN "), A(0), L(")")],
+        // The offset has to be added back, but only when the needle was
+        // actually found: POSITION returns 0 for "absent", and adding the
+        // offset to that would report a match at `start - 1`.
         IndexOfFrom => t![
-            L("(POSITION("),
+            L("(CASE WHEN POSITION("),
+            A(1),
+            L(" IN SUBSTRING("),
+            A(0),
+            L(" FROM "),
+            A(2),
+            L(")) = 0 THEN 0 ELSE POSITION("),
             A(1),
             L(" IN SUBSTRING("),
             A(0),
@@ -42,7 +51,7 @@ pub(crate) fn ansi(op: Operator) -> Option<Template> {
             A(2),
             L(")) + "),
             A(2),
-            L(" - 1)")
+            L(" - 1 END)")
         ],
         Left => t![L("LEFT("), A(0), L(", "), A(1), L(")")],
         Right => t![L("RIGHT("), A(0), L(", "), A(1), L(")")],
@@ -117,8 +126,16 @@ pub(crate) fn sqlite(op: Operator) -> Option<Template> {
         Substr => t![L("SUBSTR("), A(0), L(", "), A(1), L(")")],
         SubstrLen => t![L("SUBSTR("), A(0), L(", "), A(1), L(", "), A(2), L(")")],
         IndexOf => t![L("INSTR("), A(0), L(", "), A(1), L(")")],
+        // Same guard as the ANSI form: INSTR returns 0 when the needle is
+        // absent, which must stay 0 rather than become `start - 1`.
         IndexOfFrom => t![
-            L("(INSTR(SUBSTR("),
+            L("(CASE WHEN INSTR(SUBSTR("),
+            A(0),
+            L(", "),
+            A(2),
+            L("), "),
+            A(1),
+            L(") = 0 THEN 0 ELSE INSTR(SUBSTR("),
             A(0),
             L(", "),
             A(2),
@@ -126,7 +143,7 @@ pub(crate) fn sqlite(op: Operator) -> Option<Template> {
             A(1),
             L(") + "),
             A(2),
-            L(" - 1)")
+            L(" - 1 END)")
         ],
         Left => t![L("SUBSTR("), A(0), L(", 1, "), A(1), L(")")],
         Right => t![L("SUBSTR("), A(0), L(", -"), A(1), L(")")],

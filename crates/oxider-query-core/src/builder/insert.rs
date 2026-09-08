@@ -19,19 +19,40 @@ use crate::ast::dml::{Assignment, ConflictAction, InsertAst, InsertSource, OnCon
 use crate::ast::node::{Node, TableRef};
 use crate::builder::select::Select;
 use crate::dialect::Dialect;
-use crate::render::{render_insert, RenderResult, Renderable, Rendered};
+use crate::render::{render_insert, Bindings, RenderResult, Renderable, Rendered};
 use crate::source::{Cons, Nil};
 use crate::typed::expr::{Expr, IntoExpr};
 use crate::typed::selection::SelectionIn;
 use crate::typed::Column;
 use core::marker::PhantomData;
 
+/// A fresh INSERT that has not been told where its rows come from. The only
+/// state in which the row source can still be chosen.
+pub struct NoRows;
+
+/// A single-row INSERT built column by column with [`set`](Insert::set).
+///
+/// Fixing a column list or switching to a query afterwards would discard the
+/// values already set, so neither is reachable from here.
+pub struct OneRow;
+
+/// An `INSERT ... SELECT`.
+///
+/// The query supplies the rows, so `set` and `values` have nothing consistent
+/// to add and do not exist in this state. `set` used to keep the column name
+/// and silently drop the value, leaving a column list that no longer matched
+/// the projection.
+pub struct FromQuery;
+
 /// An INSERT statement under construction.
 ///
-/// `C` is the tuple of column types fixed by [`columns`](Insert::columns), and
-/// `()` before that call.
-pub struct Insert<E, C = ()> {
+/// `C` is the state of the row source: [`NoRows`] before one is chosen, the
+/// tuple of column types fixed by [`columns`](Insert::columns), [`OneRow`]
+/// after [`set`](Insert::set), or [`FromQuery`] after
+/// [`from_query`](Insert::from_query).
+pub struct Insert<E, C = NoRows> {
     ast: InsertAst,
+    bindings: Bindings,
     _marker: PhantomData<fn() -> (E, C)>,
 }
 
@@ -46,6 +67,7 @@ impl<E, C> Insert<E, C> {
                 on_conflict: None,
                 returning: Vec::new(),
             },
+            bindings: Bindings::new(),
             _marker: PhantomData,
         }
     }
@@ -53,6 +75,7 @@ impl<E, C> Insert<E, C> {
     fn retype<C2>(self) -> Insert<E, C2> {
         Insert {
             ast: self.ast,
+            bindings: self.bindings,
             _marker: PhantomData,
         }
     }
@@ -64,16 +87,19 @@ impl<E, C> Insert<E, C> {
 
     /// Render for a dialect.
     pub fn to_sql(&self, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-        render_insert(&self.ast, dialect)
+        render_insert(&self.ast, dialect, &self.bindings)
     }
 
-    /// Take the inserted rows from a query instead of a `VALUES` list.
+    /// Give a named parameter its value.
     ///
-    /// The query's projection has to line up with the column list, which SQL
-    /// checks and the types here do not: the projection is a runtime list of
-    /// expressions, not a tuple.
-    pub fn from_query<S, F>(mut self, query: Select<S, F>) -> Self {
-        self.ast.source = InsertSource::Query(Box::new(query.into_ast()));
+    /// The counterpart to [`param`](crate::typed::param): a statement is built
+    /// once with placeholders and rendered as often as needed, one value set at
+    /// a time. Binding the same name twice keeps the last value, and a name
+    /// left unbound is a render error rather than a silently missing value.
+    /// Bindings resolve for the whole statement, so a parameter inside a
+    /// subquery is bound here too.
+    pub fn bind(mut self, name: &'static str, value: impl Into<crate::value::Value>) -> Self {
+        self.bindings = core::mem::take(&mut self.bindings).set(name, value);
         self
     }
 
@@ -104,28 +130,17 @@ impl<E, C> Insert<E, C> {
     }
 }
 
-impl<E> Insert<E> {
+impl<E> Insert<E, NoRows> {
     /// Set one column of a single-row insert.
     ///
-    /// Only available before [`columns`](Insert::columns), so the two spellings
+    /// Moves the statement into the single-row spelling, so the column-list and
+    /// `INSERT ... SELECT` spellings are no longer reachable and the three
     /// cannot be mixed into an inconsistent statement.
-    pub fn set<T, V>(mut self, column: Column<E, T>, value: V) -> Self
+    pub fn set<T, V>(self, column: Column<E, T>, value: V) -> Insert<E, OneRow>
     where
         V: IntoExpr<T, Sources = Nil>,
     {
-        self.ast.columns.push(column.name);
-        match &mut self.ast.source {
-            InsertSource::Values(rows) => {
-                if rows.is_empty() {
-                    rows.push(Vec::new());
-                }
-                rows[0].push(value.into_expr_node());
-            }
-            // `set` after `from_query` would contradict the source; the column
-            // still belongs in the list, which is what the query fills.
-            InsertSource::Query(_) => {}
-        }
-        self
+        self.retype::<OneRow>().set(column, value)
     }
 
     /// Fix the column list, switching to the multi-row spelling.
@@ -139,8 +154,52 @@ impl<E> Insert<E> {
     }
 }
 
+/// A row-source state a query may still be attached to.
+///
+/// Implemented by [`NoRows`] and by every column-list tuple, so
+/// `INSERT INTO t SELECT ...` and `INSERT INTO t (a, b) SELECT ...` both work.
+/// Not implemented by [`OneRow`] or [`FromQuery`], which is what stops a query
+/// from replacing values already set or a second query from replacing the
+/// first.
+pub trait AcceptsQuery {}
+
+impl AcceptsQuery for NoRows {}
+
+impl<E, C: AcceptsQuery> Insert<E, C> {
+    /// Take the inserted rows from a query instead of a `VALUES` list.
+    ///
+    /// The query's projection has to line up with the column list, which SQL
+    /// checks and the types here do not: the projection is a runtime list of
+    /// expressions, not a tuple.
+    pub fn from_query<S, F, L>(mut self, query: Select<S, F, L>) -> Insert<E, FromQuery> {
+        self.ast.source = InsertSource::Query(Box::new(query.into_ast()));
+        self.retype()
+    }
+}
+
+impl<E> Insert<E, OneRow> {
+    /// Set another column of the single row being inserted.
+    pub fn set<T, V>(mut self, column: Column<E, T>, value: V) -> Self
+    where
+        V: IntoExpr<T, Sources = Nil>,
+    {
+        self.ast.columns.push(column.name);
+        if let InsertSource::Values(rows) = &mut self.ast.source {
+            if rows.is_empty() {
+                rows.push(Vec::new());
+            }
+            rows[0].push(value.into_expr_node());
+        }
+        self
+    }
+}
+
 impl<E, C> Insert<E, C> {
     /// Append one row of values, checked against the column list.
+    ///
+    /// Only usable once [`columns`](Insert::columns) has fixed that list:
+    /// `ValuesFor` is implemented for tuples alone, so no other state has
+    /// anything to pass.
     pub fn values<V>(mut self, values: V) -> Self
     where
         V: ValuesFor<C>,
@@ -154,7 +213,7 @@ impl<E, C> Insert<E, C> {
 
 impl<E, C> Renderable for Insert<E, C> {
     fn render_with(self, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-        render_insert(&self.ast, dialect)
+        render_insert(&self.ast, dialect, &self.bindings)
     }
 }
 
@@ -162,6 +221,7 @@ impl<E, C> Clone for Insert<E, C> {
     fn clone(&self) -> Self {
         Insert {
             ast: self.ast.clone(),
+            bindings: self.bindings.clone(),
             _marker: PhantomData,
         }
     }
@@ -276,6 +336,10 @@ macro_rules! insert_tuple {
                 vec![$(self.$field.into_expr_node()),+]
             }
         }
+
+        // A fixed column list may be filled by a query as well as by rows:
+        // `INSERT INTO t (a, b) SELECT ...` is the shape this allows.
+        impl<$($ty),+> AcceptsQuery for ($($ty,)+) {}
     };
 }
 

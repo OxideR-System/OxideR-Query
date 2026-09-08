@@ -86,7 +86,7 @@ impl<S, T> core::fmt::Debug for Subquery<S, T> {
 ///
 /// Takes the query rather than a [`Subquery`] because `EXISTS` ignores the
 /// projection entirely.
-pub fn exists<S, F>(query: Select<S, F>) -> Predicate<F> {
+pub fn exists<S, F, L>(query: Select<S, F, L>) -> Predicate<F> {
     Expr::new(Node::unary(
         Operator::Exists,
         Node::Subquery(Box::new(query.into_ast())),
@@ -94,7 +94,7 @@ pub fn exists<S, F>(query: Select<S, F>) -> Predicate<F> {
 }
 
 /// `NOT EXISTS (subquery)` - true when the query returns no rows.
-pub fn not_exists<S, F>(query: Select<S, F>) -> Predicate<F> {
+pub fn not_exists<S, F, L>(query: Select<S, F, L>) -> Predicate<F> {
     Expr::new(Node::unary(
         Operator::NotExists,
         Node::Subquery(Box::new(query.into_ast())),

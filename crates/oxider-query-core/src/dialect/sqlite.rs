@@ -66,6 +66,7 @@ impl Dialect for Sqlite {
             nulls_ordering: false,
             named_windows: true,
             returning: true,
+            update_from: true,
             right_join: false,
             full_join: false,
             set_op_all: false,

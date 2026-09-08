@@ -62,7 +62,35 @@ pub enum RenderError {
     /// The query is structurally invalid, for example a derived table with no
     /// alias.
     Invalid(&'static str),
+    /// A named parameter was left without a value.
+    ///
+    /// [`param`](crate::typed::param) puts a placeholder in the query and
+    /// `bind` fills it in; rendering with one still empty would either bind
+    /// nothing or bind the wrong thing, so it is refused instead.
+    UnboundParameter {
+        /// The parameter with no value.
+        name: &'static str,
+    },
+    /// The expression nests deeper than the renderer will walk.
+    ///
+    /// The walk is recursive, so an unbounded depth means a stack overflow,
+    /// which aborts the process instead of raising something a caller could
+    /// handle. Reaching this limit means a query was built in a loop - a
+    /// thousand predicates chained with `AND` rather than one `IN` - so the
+    /// error names the depth to make the shape obvious.
+    TooDeep {
+        /// The depth the renderer refuses to go past.
+        limit: u16,
+    },
 }
+
+/// The deepest expression or subquery nesting [`Renderer`] will walk.
+///
+/// Measured rather than guessed: on the tightest budget a caller realistically
+/// has (a Windows main thread, 1 MB of stack, unoptimised build) a chain of 512
+/// predicates renders and 1024 overflows, so this leaves a factor of two.
+/// No hand-written query comes close; a query that does was built in a loop.
+pub const MAX_DEPTH: u16 = 256;
 
 impl core::fmt::Display for RenderError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -78,6 +106,14 @@ impl core::fmt::Display for RenderError {
                 "the template for {operator:?} asked for argument {index}, which is missing"
             ),
             RenderError::Invalid(what) => write!(f, "invalid query: {what}"),
+            RenderError::UnboundParameter { name } => {
+                write!(f, "the named parameter `{name}` was never bound")
+            }
+            RenderError::TooDeep { limit } => write!(
+                f,
+                "the query nests more than {limit} levels deep; build it with one \
+                 IN or a joined subquery rather than a chain of predicates"
+            ),
         }
     }
 }
@@ -87,21 +123,98 @@ impl std::error::Error for RenderError {}
 /// The result of a rendering step.
 pub type RenderResult<T = ()> = Result<T, RenderError>;
 
+/// Values for the named parameters a statement carries.
+///
+/// A query written with [`param`](crate::typed::param) is a template: the same
+/// statement renders again with different values, without rebuilding it and
+/// without the values ever reaching the SQL text. The lookup is a short linear
+/// scan, which for the handful of parameters a statement has beats a map.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Bindings(Vec<(&'static str, Value)>);
+
+impl Bindings {
+    /// No bindings.
+    pub fn new() -> Self {
+        Bindings(Vec::new())
+    }
+
+    /// Give `name` a value, replacing any value it already had.
+    pub fn set(mut self, name: &'static str, value: impl Into<Value>) -> Self {
+        let value = value.into();
+        match self.0.iter_mut().find(|(known, _)| *known == name) {
+            Some(slot) => slot.1 = value,
+            None => self.0.push((name, value)),
+        }
+        self
+    }
+
+    /// Whether anything has been bound.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The value bound to `name`, if any.
+    fn get(&self, name: &str) -> Option<&Value> {
+        self.0
+            .iter()
+            .find(|(known, _)| *known == name)
+            .map(|(_, value)| value)
+    }
+}
+
 /// Accumulates SQL text and bound parameters during a render.
 pub(crate) struct Renderer<'d> {
     dialect: &'d dyn Dialect,
     sql: String,
     params: Vec<Value>,
+    /// Values for the statement's named parameters, from the outermost
+    /// statement, so a `param` inside a subquery resolves too.
+    bindings: &'d Bindings,
+    /// How many levels of expression or subquery the walk is currently inside.
+    depth: u16,
 }
 
 impl<'d> Renderer<'d> {
-    /// Start rendering for a dialect.
-    pub(crate) fn new(dialect: &'d dyn Dialect) -> Self {
+    /// Start rendering for a dialect, resolving named parameters from
+    /// `bindings`.
+    pub(crate) fn new(dialect: &'d dyn Dialect, bindings: &'d Bindings) -> Self {
         Renderer {
             dialect,
             sql: String::with_capacity(128),
             params: Vec::new(),
+            bindings,
+            depth: 0,
         }
+    }
+
+    /// Bind the value of a named parameter and append its placeholder.
+    pub(crate) fn named(&mut self, name: &'static str) -> RenderResult {
+        match self.bindings.get(name) {
+            Some(value) => {
+                let value = value.clone();
+                self.bind(&value);
+                Ok(())
+            }
+            None => Err(RenderError::UnboundParameter { name }),
+        }
+    }
+
+    /// Run `body` one level deeper, refusing rather than overflowing the stack.
+    ///
+    /// Every recursive step in the walk goes through here, so the guard cannot
+    /// be forgotten by a new node kind: the recursion and the counter are the
+    /// same call.
+    pub(crate) fn nested<T>(
+        &mut self,
+        body: impl FnOnce(&mut Self) -> RenderResult<T>,
+    ) -> RenderResult<T> {
+        if self.depth >= MAX_DEPTH {
+            return Err(RenderError::TooDeep { limit: MAX_DEPTH });
+        }
+        self.depth += 1;
+        let out = body(self);
+        self.depth -= 1;
+        out
     }
 
     /// Finish, yielding the SQL and its parameters.
@@ -126,6 +239,35 @@ impl<'d> Renderer<'d> {
     pub(crate) fn ident(&mut self, ident: &str) {
         let quoted = self.dialect.quote_ident(ident);
         self.sql.push_str(&quoted);
+    }
+
+    /// Append a possibly-qualified name, quoting each dot-separated part.
+    ///
+    /// `app.orders_seq` becomes `"app"."orders_seq"` rather than one identifier
+    /// that happens to contain a dot, which is what an engine means by a
+    /// qualified sequence or table name.
+    pub(crate) fn qualified_ident(&mut self, name: &str) {
+        for (i, part) in name.split('.').enumerate() {
+            if i > 0 {
+                self.push(".");
+            }
+            self.ident(part);
+        }
+    }
+
+    /// Append a single-quoted SQL string literal, doubling any quote inside it.
+    ///
+    /// Only reached for names an engine spells as a string rather than as an
+    /// identifier. Values never come through here; they are bound.
+    pub(crate) fn text_literal(&mut self, text: &str) {
+        self.sql.push('\'');
+        for ch in text.chars() {
+            if ch == '\'' {
+                self.sql.push('\'');
+            }
+            self.sql.push(ch);
+        }
+        self.sql.push('\'');
     }
 
     /// Bind a value and append its placeholder.

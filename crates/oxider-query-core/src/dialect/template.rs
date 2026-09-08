@@ -20,12 +20,30 @@ pub enum Elem {
     Lit(&'static str),
     /// The argument at this index, rendered in place.
     Arg(u8),
-    /// The argument at this index rendered as a bare identifier rather than as
-    /// an expression. Used for cast target types and sequence names.
+    /// The argument at this index rendered as a quoted identifier rather than
+    /// as an expression, with each dot-separated part quoted separately so a
+    /// schema-qualified name stays qualified. Used for sequence names, which
+    /// engines take as names rather than as values.
     Ident(u8),
+    /// The argument at this index rendered as a single-quoted SQL string
+    /// literal, quotes included and any quote inside it doubled.
+    ///
+    /// PostgreSQL names a sequence with a string rather than an identifier
+    /// (`NEXTVAL('seq')`), and that string is the one place the renderer builds
+    /// a literal rather than binding a parameter, so it is escaped here rather
+    /// than spliced by the template.
+    TextLiteral(u8),
     /// Every remaining argument from this index on, comma separated. Used by
     /// variadic operators such as `COALESCE`.
     Rest(u8),
+    /// Every argument, joined by this separator and each rendered at the
+    /// operator's own precedence.
+    ///
+    /// Used by the associative connectives. `AND` and `OR` carry a flattened
+    /// argument list rather than a left-leaning tree, so a filter built in a
+    /// loop stays two levels deep instead of one level per condition, and the
+    /// template has to render however many arguments turned up.
+    Joined(&'static str),
 }
 
 /// How an operator lays out its arguments in SQL.

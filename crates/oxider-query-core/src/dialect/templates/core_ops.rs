@@ -6,7 +6,9 @@
 //! keyword, and neither MySQL nor SQLite (before 3.39) has `IS DISTINCT FROM`.
 
 use crate::ast::operator::Operator;
-use crate::dialect::template::{t, Elem::Arg as A, Elem::Lit as L, Elem::Rest as R, Template};
+use crate::dialect::template::{
+    t, Elem::Arg as A, Elem::Joined as J, Elem::Lit as L, Elem::Rest as R, Template,
+};
 
 /// The ANSI template for a comparison, boolean, or conditional operator.
 pub(crate) fn ansi(op: Operator) -> Option<Template> {
@@ -35,10 +37,12 @@ pub(crate) fn ansi(op: Operator) -> Option<Template> {
         Exists => t![L("EXISTS "), A(0)],
         NotExists => t![L("NOT EXISTS "), A(0)],
 
-        // Boolean logic. ANSI has no XOR, so inequality of two booleans stands
-        // in for it; MySQL overrides with its native keyword.
-        And => t![A(0), L(" AND "), A(1)],
-        Or => t![A(0), L(" OR "), A(1)],
+        // Boolean logic. AND and OR are associative and carry a flattened
+        // argument list, so they render however many arguments they were given.
+        // ANSI has no XOR, so inequality of two booleans stands in for it;
+        // MySQL overrides with its native keyword.
+        And => t![J(" AND ")],
+        Or => t![J(" OR ")],
         Not => t![L("NOT "), A(0)],
         Xor => t![A(0), L(" <> "), A(1)],
 

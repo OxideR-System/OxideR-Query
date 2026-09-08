@@ -182,14 +182,103 @@ impl Node {
         Node::Op(operator, vec![arg])
     }
 
+    /// Combine two operands with an associative connective, flattening rather
+    /// than nesting.
+    ///
+    /// `a AND b AND c` is one node with three arguments, not two nodes. The
+    /// rendered SQL is identical either way - the connectives are associative
+    /// and share a precedence level, so no parentheses appear in either shape -
+    /// but the depth is what matters: a filter accumulated in a loop stays two
+    /// levels deep instead of growing one level per condition, which is the
+    /// difference between a query that renders and one that used to walk
+    /// thousands of stack frames.
+    pub fn connect(operator: Operator, mut lhs: Node, rhs: Node) -> Node {
+        match &mut lhs {
+            Node::Op(op, args) if *op == operator => {
+                args.push(rhs);
+                lhs
+            }
+            _ => Node::Op(operator, vec![lhs, rhs]),
+        }
+    }
+
     /// Combine two optional predicates with `AND`, keeping `None` absorbing.
     ///
     /// Used by every clause that accumulates predicates across repeated calls
     /// (`where`, `having`, `on`).
     pub fn and_opt(existing: Option<Node>, next: Node) -> Node {
         match existing {
-            Some(prev) => Node::binary(Operator::And, prev, next),
+            Some(prev) => Node::connect(Operator::And, prev, next),
             None => next,
         }
+    }
+}
+
+/// Tear a node down iteratively, so a deep tree cannot overflow the stack.
+///
+/// The derived drop glue is recursive: freeing an expression a few thousand
+/// levels deep walks a stack frame per level and aborts the process, which no
+/// caller can catch or recover from. Detaching children into a worklist first
+/// means every node this runs on is already childless by the time its own drop
+/// glue runs, so the recursion is one level deep whatever the tree looks like.
+impl Drop for Node {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        detach_children(self, &mut pending);
+        while let Some(mut node) = pending.pop() {
+            detach_children(&mut node, &mut pending);
+        }
+    }
+}
+
+/// Move every child node of `node` into `out`, leaving `node` childless.
+fn detach_children(node: &mut Node, out: &mut Vec<Node>) {
+    /// A leaf to swap in for a child being taken away. Never rendered: the
+    /// node holding it is on its way out.
+    fn stub() -> Node {
+        Node::Keyword("")
+    }
+
+    match node {
+        Node::Column(_)
+        | Node::Param(_)
+        | Node::NamedParam(_)
+        | Node::Keyword(_)
+        | Node::Star(_)
+        | Node::Excluded(_) => {}
+        Node::Op(_, args) | Node::Row(args) => out.append(args),
+        Node::Aggregate {
+            args,
+            order_by,
+            filter,
+            ..
+        } => {
+            out.append(args);
+            out.extend(order_by.drain(..).map(|term| term.expr));
+            out.extend(filter.take().map(|boxed| *boxed));
+        }
+        Node::Cast { expr, .. } => out.push(core::mem::replace(&mut **expr, stub())),
+        Node::Case {
+            operand,
+            arms,
+            otherwise,
+        } => {
+            out.extend(operand.take().map(|boxed| *boxed));
+            out.extend(arms.drain(..).flat_map(|arm| [arm.when, arm.then]));
+            out.extend(otherwise.take().map(|boxed| *boxed));
+        }
+        Node::Window { func, .. } => out.push(core::mem::replace(&mut **func, stub())),
+        // A subquery owns a whole statement, not a node. Its own expressions
+        // each drop through here, so an expression of any depth inside a
+        // subquery is safe; what stays recursive is statements nested inside
+        // statements, which no accumulation loop produces - every level needs a
+        // separately built query - and which the renderer's depth guard refuses
+        // long before it matters.
+        Node::Subquery(_) => {}
+        Node::Alias(inner, _) => out.push(core::mem::replace(&mut **inner, stub())),
+        Node::Raw(parts) => out.extend(parts.drain(..).filter_map(|part| match part {
+            RawPart::Sql(_) => None,
+            RawPart::Expr(node) => Some(node),
+        })),
     }
 }

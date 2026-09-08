@@ -34,13 +34,13 @@ pub use builder::{
     Subquery, SubqueryOps, Update,
 };
 pub use dialect::{Caps, CastKind, Dialect, MySql, Postgres, Sqlite, Template};
-pub use render::{RenderError, RenderResult, Renderable, Rendered};
+pub use render::{Bindings, RenderError, RenderResult, Renderable, Rendered, MAX_DEPTH};
 pub use source::{Cons, Nil};
 pub use typed::{
-    case_when, coalesce, col, count_all, current_date, current_time, current_timestamp, greatest,
-    least, null, nullif, param, raw, val, AggOps, Aggregate, Aliased, AnyExpr, BoolOps, Column,
-    CompareOps, Entity, Expr, ExprExt, IntoExpr, MathOps, NumericAggOps, Only, Order, OrderOps,
-    OrderedAggOps, Predicate, SelectionIn, Table, TemporalOps, TextOps, Window,
+    case_when, coalesce, col, count_all, curr_val, current_date, current_time, current_timestamp,
+    greatest, least, next_val, null, nullif, param, raw, val, AggOps, Aggregate, Aliased, AnyExpr,
+    BoolOps, Column, CompareOps, Entity, Expr, ExprExt, IntoExpr, MathOps, NumericAggOps, Only,
+    Order, OrderOps, OrderedAggOps, Predicate, SelectionIn, Table, TemporalOps, TextOps, Window,
 };
 pub use value::{Numeric, Orderable, SqlType, Temporal, ToSqlValue, Value};
 

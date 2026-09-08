@@ -11,7 +11,10 @@ pub mod subquery;
 pub mod update;
 
 pub use delete::Delete;
-pub use insert::{excluded, ColumnsOf, ConflictUpdate, Insert, OnConflictTarget, ValuesFor};
-pub use select::{all_of, select_from, select_from_name, select_only, Select};
+pub use insert::{
+    excluded, AcceptsQuery, ColumnsOf, ConflictUpdate, FromQuery, Insert, NoRows, OnConflictTarget,
+    OneRow, ValuesFor,
+};
+pub use select::{all_of, select_from, select_from_name, select_only, Locked, Select, Unlocked};
 pub use subquery::{exists, not_exists, Subquery, SubqueryOps};
 pub use update::Update;

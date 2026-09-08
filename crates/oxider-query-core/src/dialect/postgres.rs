@@ -54,6 +54,8 @@ impl Dialect for Postgres {
         Caps {
             distinct_on: true,
             returning: true,
+            update_from: true,
+            delete_using: true,
             lock_wait_policy: true,
             on_conflict: true,
             ..Caps::ANSI

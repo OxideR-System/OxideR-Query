@@ -175,3 +175,32 @@ fn a_recursive_cte_walks_a_management_chain() {
         r#"WITH RECURSIVE "chain" AS (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."manager_id" IS NULL UNION ALL (SELECT "users"."id", "users"."name" FROM "users" INNER JOIN "chain" AS "c" ON "users"."manager_id" = "c"."id")) SELECT "chain"."name" FROM "chain""#,
     );
 }
+
+#[test]
+fn a_branch_carrying_its_own_tail_is_refused_where_branches_are_not_wrapped() {
+    // Postgres and MySQL parenthesise each branch, so a branch keeping its own
+    // LIMIT is well defined. SQLite rejects a parenthesised branch, so the same
+    // query would render as `... UNION SELECT ... LIMIT 5`, where the LIMIT
+    // silently rebinds to the whole union instead of to the branch.
+    let query = || {
+        User::query()
+            .select(User::name)
+            .union(Department::query().select(Department::name).limit(5))
+    };
+    assert_sql_only(
+        query(),
+        &Postgres,
+        r#"SELECT "users"."name" FROM "users" UNION (SELECT "departments"."name" FROM "departments" LIMIT 5)"#,
+    );
+    assert_rejected(query(), &Sqlite, "set-operation branch");
+}
+
+#[test]
+fn a_branch_ordering_itself_is_refused_on_the_same_grounds() {
+    let query = User::query().select(User::name).union(
+        Department::query()
+            .select(Department::name)
+            .order_by(Department::name.asc()),
+    );
+    assert_rejected(query, &Sqlite, "set-operation branch");
+}

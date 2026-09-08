@@ -21,7 +21,7 @@ use crate::ast::query::{
 };
 use crate::builder::subquery::Subquery;
 use crate::dialect::Dialect;
-use crate::render::{render_select_into, RenderResult, Renderable, Rendered};
+use crate::render::{render_select_into, Bindings, RenderResult, Renderable, Rendered};
 use crate::source::{Cons, ContainsAll, Nil};
 use crate::typed::expr::{Order, Predicate};
 use crate::typed::selection::{AnyExpr, SelectionIn};
@@ -29,25 +29,48 @@ use crate::typed::window::Window;
 use crate::typed::{Column, Entity, Table};
 use core::marker::PhantomData;
 
+/// A query with no row-locking clause. The state every SELECT starts in.
+pub struct Unlocked;
+
+/// A query carrying a row-locking clause.
+///
+/// The wait policy - `NOWAIT`, `SKIP LOCKED` - is only meaningful as a modifier
+/// of a lock, so [`no_wait`](Select::no_wait) and
+/// [`skip_locked`](Select::skip_locked) exist only in this state. Asking for
+/// `SKIP LOCKED` without a lock used to render a query with no locking at all,
+/// which in the queue-worker pattern those methods exist for means several
+/// workers quietly processing the same rows.
+pub struct Locked;
+
+/// The zero-sized marker carrying a query's three type parameters.
+///
+/// Named rather than written inline so the struct definition stays readable
+/// with three of them; `fn() -> _` keeps `Select` covariant and imposes no
+/// auto-trait bounds on the parameters.
+type Markers<S, F, L> = PhantomData<fn() -> (S, F, L)>;
+
 /// A SELECT statement under construction.
-pub struct Select<S, F = Nil> {
+pub struct Select<S, F = Nil, L = Unlocked> {
     ast: SelectAst,
-    _marker: PhantomData<fn() -> (S, F)>,
+    bindings: Bindings,
+    _marker: Markers<S, F, L>,
 }
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     /// Start a SELECT over one table. The caller states the scope.
     pub(crate) fn new(table: TableRef) -> Self {
         Select {
             ast: SelectAst::from_table(table),
+            bindings: Bindings::new(),
             _marker: PhantomData,
         }
     }
 
     /// Rebuild with a different type-level scope, keeping the AST.
-    fn retype<S2, F2>(self) -> Select<S2, F2> {
+    fn retype<S2, F2, L2>(self) -> Select<S2, F2, L2> {
         Select {
             ast: self.ast,
+            bindings: self.bindings,
             _marker: PhantomData,
         }
     }
@@ -64,16 +87,29 @@ impl<S, F> Select<S, F> {
 
     /// Render for a dialect.
     pub fn to_sql(&self, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-        render_select_into(&self.ast, dialect)
+        render_select_into(&self.ast, dialect, &self.bindings)
+    }
+
+    /// Give a named parameter its value.
+    ///
+    /// The counterpart to [`param`](crate::typed::param): a statement is built
+    /// once with placeholders and rendered as often as needed, one value set at
+    /// a time. Binding the same name twice keeps the last value, and a name
+    /// left unbound is a render error rather than a silently missing value.
+    /// Bindings resolve for the whole statement, so a parameter inside a
+    /// subquery is bound here too.
+    pub fn bind(mut self, name: &'static str, value: impl Into<crate::value::Value>) -> Self {
+        self.bindings = core::mem::take(&mut self.bindings).set(name, value);
+        self
     }
 }
 
 // --- Sources -------------------------------------------------------------
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     /// Add another table to FROM, joined by the WHERE clause rather than by an
     /// explicit JOIN. The older spelling of a cross join.
-    pub fn and_from<E2>(mut self, table: Table<E2>) -> Select<Cons<E2, S>, F> {
+    pub fn and_from<E2>(mut self, table: Table<E2>) -> Select<Cons<E2, S>, F, L> {
         self.ast.from.push(Source::Table(table.reference()));
         self.retype()
     }
@@ -83,11 +119,11 @@ impl<S, F> Select<S, F> {
     /// Its columns have no metamodel behind them, so they are reached with
     /// [`col`](crate::typed::col) under the alias given here, and the compiler
     /// cannot check them.
-    pub fn and_from_query<S2, F2>(
+    pub fn and_from_query<S2, F2, L2>(
         mut self,
-        query: Select<S2, F2>,
+        query: Select<S2, F2, L2>,
         alias: &'static str,
-    ) -> Select<S, F> {
+    ) -> Select<S, F, L> {
         self.ast.from.push(Source::Derived {
             query: Box::new(query.into_ast()),
             alias,
@@ -102,7 +138,7 @@ impl<S, F> Select<S, F> {
     /// columns, and joins the free set, so whoever embeds this subquery has to
     /// have that entity in scope. Call it before the clause that references the
     /// outer table.
-    pub fn correlate<E2>(self) -> Select<Cons<E2, S>, Cons<E2, F>> {
+    pub fn correlate<E2>(self) -> Select<Cons<E2, S>, Cons<E2, F>, L> {
         self.retype()
     }
 }
@@ -115,7 +151,7 @@ macro_rules! join_method {
             mut self,
             table: Table<E2>,
             on: Predicate<S2>,
-        ) -> Select<Cons<E2, S>, F>
+        ) -> Select<Cons<E2, S>, F, L>
         where
             Cons<E2, S>: ContainsAll<S2, I>,
         {
@@ -129,7 +165,7 @@ macro_rules! join_method {
     };
 }
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     join_method!(
         inner_join,
         JoinKind::Inner,
@@ -150,7 +186,7 @@ impl<S, F> Select<S, F> {
     );
 
     /// `CROSS JOIN table` - every combination, with no condition.
-    pub fn cross_join<E2>(mut self, table: Table<E2>) -> Select<Cons<E2, S>, F> {
+    pub fn cross_join<E2>(mut self, table: Table<E2>) -> Select<Cons<E2, S>, F, L> {
         self.ast.joins.push(JoinAst {
             kind: JoinKind::Cross,
             source: Source::Table(table.reference()),
@@ -172,7 +208,7 @@ impl<S, F> Select<S, F> {
     /// A CTE has to be joined this way rather than wrapped in a subquery: a
     /// recursive CTE may reference itself only directly in `FROM`, so
     /// [`join_query`](Select::join_query) would make it a circular reference.
-    pub fn join_name<S2, I>(self, name: &'static str, on: Predicate<S2>) -> Select<S, F>
+    pub fn join_name<S2, I>(self, name: &'static str, on: Predicate<S2>) -> Select<S, F, L>
     where
         S: ContainsAll<S2, I>,
     {
@@ -185,14 +221,14 @@ impl<S, F> Select<S, F> {
         name: &'static str,
         alias: &'static str,
         on: Predicate<S2>,
-    ) -> Select<S, F>
+    ) -> Select<S, F, L>
     where
         S: ContainsAll<S2, I>,
     {
         self.join_named(TableRef::aliased(name, alias), on)
     }
 
-    fn join_named<S2>(mut self, table: TableRef, on: Predicate<S2>) -> Select<S, F> {
+    fn join_named<S2>(mut self, table: TableRef, on: Predicate<S2>) -> Select<S, F, L> {
         self.ast.joins.push(JoinAst {
             kind: JoinKind::Inner,
             source: Source::Table(table),
@@ -203,12 +239,12 @@ impl<S, F> Select<S, F> {
 
     /// Join a subquery as a derived table. Its columns are reached with
     /// [`col`](crate::typed::col) under `alias`.
-    pub fn join_query<S2, F2, S3, I>(
+    pub fn join_query<S2, F2, L2, S3, I>(
         mut self,
-        query: Select<S2, F2>,
+        query: Select<S2, F2, L2>,
         alias: &'static str,
         on: Predicate<S3>,
-    ) -> Select<S, F>
+    ) -> Select<S, F, L>
     where
         S: ContainsAll<S3, I>,
     {
@@ -226,7 +262,7 @@ impl<S, F> Select<S, F> {
 
 // --- Filtering and projection --------------------------------------------
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     /// Add a WHERE condition. Repeated calls are combined with `AND`.
     pub fn filter<S2, I>(mut self, predicate: Predicate<S2>) -> Self
     where
@@ -311,7 +347,7 @@ impl<S, F> Select<S, F> {
 
     /// Declare a named window, referenced by
     /// [`over_named`](crate::typed::Aggregate::over_named).
-    pub fn window<S2>(mut self, name: &'static str, window: Window<S2>) -> Self {
+    pub fn window<S2, Fr>(mut self, name: &'static str, window: Window<S2, Fr>) -> Self {
         self.ast.windows.push((name, window.into_definition()));
         self
     }
@@ -319,7 +355,7 @@ impl<S, F> Select<S, F> {
 
 // --- Ordering, paging, locking -------------------------------------------
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     /// Add an ORDER BY term. Repeated calls append, so the first call is the
     /// primary sort.
     pub fn order_by<S2, I>(mut self, term: Order<S2>) -> Self
@@ -368,60 +404,75 @@ impl<S, F> Select<S, F> {
     pub fn page(self, page: u64, size: u64) -> Self {
         self.limit(size).offset(page.saturating_mul(size))
     }
+}
 
+// --- Locking -------------------------------------------------------------
+//
+// Taking a lock moves the query into the `Locked` state, and the wait policy
+// exists only there. The alternative - accepting `skip_locked()` on any query
+// and ignoring it when there is no lock - renders a query with no locking at
+// all, which is exactly wrong for the pattern those methods serve.
+
+impl<S, F> Select<S, F, Unlocked> {
     /// `FOR UPDATE` - lock the selected rows for writing.
-    pub fn for_update(self) -> Self {
+    pub fn for_update(self) -> Select<S, F, Locked> {
         self.lock(LockMode::Update)
     }
 
     /// `FOR SHARE` - lock the selected rows against writers.
-    pub fn for_share(self) -> Self {
+    pub fn for_share(self) -> Select<S, F, Locked> {
         self.lock(LockMode::Share)
     }
 
     /// `FOR NO KEY UPDATE` - a weaker `FOR UPDATE` that still allows foreign
     /// keys to reference the row. PostgreSQL only.
-    pub fn for_no_key_update(self) -> Self {
+    pub fn for_no_key_update(self) -> Select<S, F, Locked> {
         self.lock(LockMode::NoKeyUpdate)
     }
 
     /// `FOR KEY SHARE` - the weakest lock. PostgreSQL only.
-    pub fn for_key_share(self) -> Self {
+    pub fn for_key_share(self) -> Select<S, F, Locked> {
         self.lock(LockMode::KeyShare)
     }
 
-    fn lock(mut self, mode: LockMode) -> Self {
+    fn lock(mut self, mode: LockMode) -> Select<S, F, Locked> {
         self.ast.lock = Some(Lock {
             mode,
             wait: LockWait::Wait,
         });
-        self
+        self.retype()
     }
+}
 
+impl<S, F> Select<S, F, Locked> {
     /// Fail rather than wait when a selected row is already locked.
-    pub fn no_wait(mut self) -> Self {
-        if let Some(lock) = self.ast.lock.as_mut() {
-            lock.wait = LockWait::NoWait;
-        }
-        self
+    pub fn no_wait(self) -> Self {
+        self.wait(LockWait::NoWait)
     }
 
     /// Skip rows that are already locked - the queue-worker pattern.
-    pub fn skip_locked(mut self) -> Self {
-        if let Some(lock) = self.ast.lock.as_mut() {
-            lock.wait = LockWait::SkipLocked;
-        }
+    pub fn skip_locked(self) -> Self {
+        self.wait(LockWait::SkipLocked)
+    }
+
+    fn wait(mut self, policy: LockWait) -> Self {
+        let lock = self
+            .ast
+            .lock
+            .as_mut()
+            .expect("a Locked query always carries a lock");
+        lock.wait = policy;
         self
     }
 }
 
 // --- CTEs and set operations ---------------------------------------------
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     /// Prepend a common table expression.
     ///
     /// Its columns are reached with [`col`](crate::typed::col) under `name`.
-    pub fn with<S2, F2>(mut self, name: &'static str, query: Select<S2, F2>) -> Self {
+    pub fn with<S2, F2, L2>(mut self, name: &'static str, query: Select<S2, F2, L2>) -> Self {
         self.ast.with.push(Cte {
             name,
             columns: Vec::new(),
@@ -431,11 +482,11 @@ impl<S, F> Select<S, F> {
     }
 
     /// Prepend a common table expression with explicit column names.
-    pub fn with_columns<S2, F2>(
+    pub fn with_columns<S2, F2, L2>(
         mut self,
         name: &'static str,
         columns: impl IntoIterator<Item = &'static str>,
-        query: Select<S2, F2>,
+        query: Select<S2, F2, L2>,
     ) -> Self {
         self.ast.with.push(Cte {
             name,
@@ -456,14 +507,14 @@ impl<S, F> Select<S, F> {
 macro_rules! set_op_method {
     ($name:ident, $op:expr, $doc:literal) => {
         #[doc = $doc]
-        pub fn $name<S2, F2>(mut self, other: Select<S2, F2>) -> Self {
+        pub fn $name<S2, F2, L2>(mut self, other: Select<S2, F2, L2>) -> Self {
             self.ast.set_ops.push(($op, Box::new(other.into_ast())));
             self
         }
     };
 }
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     set_op_method!(
         union,
         SetOp::Union,
@@ -498,7 +549,7 @@ impl<S, F> Select<S, F> {
 
 // --- Becoming an expression ----------------------------------------------
 
-impl<S, F> Select<S, F> {
+impl<S, F, L> Select<S, F, L> {
     /// Turn this query into a scalar subquery selecting one expression.
     ///
     /// The result's source set is `F`, this query's free entities, so an
@@ -521,22 +572,23 @@ impl<S, F> Select<S, F> {
     }
 }
 
-impl<S, F> Renderable for Select<S, F> {
+impl<S, F, L> Renderable for Select<S, F, L> {
     fn render_with(self, dialect: &dyn Dialect) -> RenderResult<Rendered> {
-        render_select_into(&self.ast, dialect)
+        render_select_into(&self.ast, dialect, &self.bindings)
     }
 }
 
-impl<S, F> Clone for Select<S, F> {
+impl<S, F, L> Clone for Select<S, F, L> {
     fn clone(&self) -> Self {
         Select {
             ast: self.ast.clone(),
+            bindings: self.bindings.clone(),
             _marker: PhantomData,
         }
     }
 }
 
-impl<S, F> core::fmt::Debug for Select<S, F> {
+impl<S, F, L> core::fmt::Debug for Select<S, F, L> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("Select").field(&self.ast).finish()
     }
@@ -551,6 +603,7 @@ where
     selection.append_nodes(&mut ast.columns);
     Select {
         ast,
+        bindings: Bindings::new(),
         _marker: PhantomData,
     }
 }

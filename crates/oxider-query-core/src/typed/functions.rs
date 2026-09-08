@@ -30,7 +30,9 @@ pub fn null<T>() -> Expr<Nil, T> {
 
 /// A named bind parameter, resolved before execution.
 ///
-/// The building block for prepared statements reused with different values.
+/// The building block for a statement built once and rendered many times: the
+/// name is filled in by `bind` on whichever builder owns the statement, and a
+/// name left unbound makes the render fail rather than quietly disappear.
 pub fn param<T>(name: &'static str) -> Expr<Nil, T> {
     Expr::new(Node::NamedParam(name))
 }
