@@ -115,9 +115,9 @@ release: ## Bump, verify, tag and publish a GitHub release. VERSION=x.y.z requir
 	@! git rev-parse -q --verify "refs/tags/v$(VERSION)" >/dev/null \
 		|| { echo "tag v$(VERSION) already exists"; exit 1; }
 	@git fetch --quiet $(REMOTE) $(RELEASE_BRANCH)
-	# Being ahead of the remote is the normal state before a release, since the
-	# release pushes. Being behind is not: it would tag a commit that does not
-	# contain what is already published.
+	@# Being ahead of the remote is the normal state before a release, since the
+	@# release pushes. Being behind is not: it would tag a commit that does not
+	@# contain what is already published.
 	@test "$$(git rev-list --count HEAD..$(REMOTE)/$(RELEASE_BRANCH))" = "0" \
 		|| { echo "$(REMOTE)/$(RELEASE_BRANCH) has commits you do not: pull first"; exit 1; }
 	@test -z "$(NOTES)" || test -f "$(NOTES)" || { echo "no such notes file: $(NOTES)"; exit 1; }
