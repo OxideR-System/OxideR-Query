@@ -838,7 +838,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "oxider-query"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "criterion",
@@ -848,7 +848,7 @@ dependencies = [
 
 [[package]]
 name = "oxider-query-codegen"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "sqlx",
  "syn 2.0.119",
@@ -857,14 +857,14 @@ dependencies = [
 
 [[package]]
 name = "oxider-query-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
 ]
 
 [[package]]
 name = "oxider-query-exec"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "oxider-query",
@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "oxider-query-macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proc-macro2",
  "quote",
