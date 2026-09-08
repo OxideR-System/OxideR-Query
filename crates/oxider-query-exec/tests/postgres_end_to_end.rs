@@ -73,11 +73,23 @@ fn url() -> Option<String> {
     std::env::var("OXIDER_POSTGRES_URL").ok()
 }
 
-/// A connected handle over freshly created tables.
+/// Serialises the whole suite.
+///
+/// Every test drops and recreates the same tables, so running two at once means
+/// one clearing the other's rows mid-assertion, or both issuing the DDL and one
+/// losing with `relation "ox_users" already exists`. Unlike the SQLite suite,
+/// where each test gets a private in-memory database for free, these share one
+/// server. Serialising is the honest fix; passing `--test-threads=1` would only
+/// hide it from whoever forgets the flag.
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A connected handle over freshly created tables, plus the guard that keeps
+/// this test alone on the server until it finishes.
 ///
 /// Tables are dropped and recreated rather than shared, so the suite is
 /// order-independent and rerunnable against the same server.
-async fn database() -> Option<PostgresDb> {
+async fn database() -> Option<(PostgresDb, tokio::sync::MutexGuard<'static, ()>)> {
+    let guard = ONE_AT_A_TIME.lock().await;
     let db = PostgresDb::connect(&url()?).await.unwrap();
     for statement in [
         "DROP TABLE IF EXISTS ox_users",
@@ -91,14 +103,19 @@ async fn database() -> Option<PostgresDb> {
     ] {
         sqlx::query(statement).execute(db.pool()).await.unwrap();
     }
-    Some(db)
+    Some((db, guard))
 }
 
 /// Skip the test body when no server is configured.
 macro_rules! db_or_skip {
     () => {
+        // The guard is bound alongside the handle so it lives as long as the
+        // test body, rather than being dropped at the end of this expression.
         match database().await {
-            Some(db) => db,
+            Some((db, guard)) => {
+                let _guard = guard;
+                db
+            }
             None => {
                 eprintln!("OXIDER_POSTGRES_URL is not set, skipping");
                 return;

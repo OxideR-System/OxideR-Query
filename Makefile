@@ -88,7 +88,7 @@ pg-down: ## Remove the throwaway PostgreSQL
 
 test-pg: ## Run the PostgreSQL end-to-end suite against a running server
 	OXIDER_POSTGRES_URL=$(PG_URL) $(CARGO) test -p oxider-query-exec \
-		--features postgres --test postgres_end_to_end -- --test-threads=1
+		--features postgres --test postgres_end_to_end
 
 bench: ## Render-throughput microbench (criterion)
 	$(CARGO) bench -p oxider-query

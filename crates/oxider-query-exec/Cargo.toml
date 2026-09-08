@@ -12,11 +12,15 @@ readme = "../../README.md"
 oxider-query-core.workspace = true
 sqlx = { workspace = true }
 chrono = { version = "0.4", default-features = false, optional = true }
+# chrono support is enabled on the Postgres driver itself rather than through
+# `sqlx/chrono`, which fans the feature out to every backend and so drags
+# sqlx-mysql, and its dependencies, into the lock file for nothing.
+sqlx-postgres = { version = "0.8", features = ["chrono"], optional = true }
 
 [features]
 default = ["sqlite"]
 sqlite = ["sqlx/sqlite"]
-postgres = ["sqlx/postgres", "sqlx/chrono", "dep:chrono"]
+postgres = ["sqlx/postgres", "dep:sqlx-postgres", "dep:chrono"]
 
 [dev-dependencies]
 oxider-query.workspace = true
