@@ -11,12 +11,16 @@ readme = "../../README.md"
 [dependencies]
 oxider-query-core.workspace = true
 sqlx = { workspace = true }
+chrono = { version = "0.4", default-features = false, optional = true }
 
 [features]
 default = ["sqlite"]
 sqlite = ["sqlx/sqlite"]
+postgres = ["sqlx/postgres", "sqlx/chrono", "dep:chrono"]
 
 [dev-dependencies]
 oxider-query = { path = "../oxider-query", version = "0.1.0" }
 tokio = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite", "macros"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+oxider-query-core = { workspace = true, features = ["chrono"] }

@@ -11,6 +11,24 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The Postgres end-to-end suite skips itself when OXIDER_POSTGRES_URL is
+    # unset, which keeps a local `cargo test` serverless but would also let the
+    # whole suite pass having run nothing. CI is where it has to really run.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: oxider
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OXIDER_POSTGRES_URL: postgres://postgres:ci@localhost:5432/oxider
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

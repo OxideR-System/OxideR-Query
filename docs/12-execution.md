@@ -19,7 +19,7 @@ Bạn hoàn toàn có thể tự cầm `(sql, params)` từ `to_sql` rồi chạ
 [dependencies]
 oxider-query = { git = "https://github.com/OxideR-System/OxideR-Query" }
 oxider-query-exec = { git = "https://github.com/OxideR-System/OxideR-Query" }
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }  # hoặc "postgres"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -43,6 +43,8 @@ Chú ý là không có `.to_sql(&Sqlite)` ở đâu cả.
 `Db` chọn dialect từ backend của chính nó, nên query giữ nguyên tính độc lập engine, và đổi database là đổi một dòng khai báo kiểu handle chứ không phải sửa query.
 
 `SqliteDb` là bí danh của `Db<sqlx::Sqlite>`.
+`PostgresDb` là bí danh của `Db<sqlx::Postgres>`, sau feature `postgres`, và mọi phương thức dưới đây giống hệt nhau cho cả hai.
+Đổi backend là đổi kiểu của handle, không đụng tới một dòng query nào.
 
 ## 12.2. Bốn phương thức chạy query
 
@@ -125,9 +127,22 @@ match db.fetch_all::<User, _>(query).await {
 ## 12.5. Bind tham số
 
 `Value` được bind thành kiểu native của driver.
-Trên SQLite, kiểu ngày giờ bind thành text, đúng dạng ISO-8601 mà tầng giá trị sinh ra.
+Bạn không phải làm gì cả; mục này giải thích vì sao một cột `DATE` so sánh được với `NaiveDate` mà không cần chuyển đổi thủ công, và vì sao chỗ đó lại khác nhau giữa hai backend.
 
-Bạn không phải làm gì cả; đây là ghi chú để hiểu vì sao một cột `DATETIME` so sánh được với `NaiveDateTime` mà không cần chuyển đổi thủ công.
+`Value` lưu ngày giờ dưới dạng text, vì AST không được phụ thuộc vào thư viện ngày tháng nào.
+SQLite nhận thẳng: nó quyết định kiểu của một cột theo giá trị được đưa vào, nên chuỗi ISO-8601 là đủ.
+
+PostgreSQL thì không.
+Giao thức extended query mang theo một type OID cho từng tham số, sqlx khai báo `text` cho chuỗi Rust, và server từ chối dùng nó ở chỗ cần `date`:
+
+```text
+ERROR 42804: column "on_day" is of type date but expression is of type text
+```
+
+Nên backend PostgreSQL parse ngược chuỗi về kiểu `chrono` trước khi bind, dùng đúng các hằng format mà tầng giá trị đã ghi ra (`oxider_query_core::formats`).
+Ghi và đọc là hai nửa của cùng một hợp đồng, nên chúng dùng chung một định nghĩa thay vì mỗi bên tự khai một bản.
+
+Một điểm cần biết nếu bạn dùng cột có múi giờ: `DateTime<Utc>` được ghi kèm offset tường minh, nên khi vào cột `TIMESTAMPTZ` nó không bị diễn giải lại theo múi giờ của session.
 
 ## 12.6. Thêm một backend
 
@@ -144,8 +159,17 @@ pub trait Backend: Database {
 
 Implement nó cho một `sqlx::Database` là đủ để `Db` và `Tx` chạy trên backend đó, không phải sửa gì trong hai kiểu ấy.
 
-Hôm nay chỉ có SQLite (feature mặc định `sqlite`).
-PostgreSQL và MySQL lắp vào theo đúng đường này.
+Hôm nay có SQLite (feature mặc định `sqlite`) và PostgreSQL (feature `postgres`).
+MySQL lắp vào theo đúng đường này.
+
+Backend PostgreSQL dài khoảng 60 dòng, gần hết là bảng `match` trên `Value`, đúng như trait này hứa hẹn.
+Bộ test end-to-end của nó tự bỏ qua khi biến môi trường `OXIDER_POSTGRES_URL` chưa được đặt, nên `cargo test` mặc định không cần server:
+
+```bash
+make pg-up      # dựng một PostgreSQL tạm bằng Docker
+make test-pg    # chạy bộ test end-to-end
+make pg-down    # xóa nó đi
+```
 
 ## Bước tiếp theo
 

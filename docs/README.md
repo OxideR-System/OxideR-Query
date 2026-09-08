@@ -47,7 +47,7 @@ Người dùng chỉ cần crate facade `oxider-query`; nó re-export core và d
 [dependencies]
 oxider-query = { git = "https://github.com/OxideR-System/OxideR-Query" }
 
-# Tùy chọn: lớp thực thi async qua sqlx (SQLite hôm nay)
+# Tùy chọn: lớp thực thi async qua sqlx (PostgreSQL và SQLite)
 oxider-query-exec = { git = "https://github.com/OxideR-System/OxideR-Query" }
 
 # Tùy chọn: sinh entity từ schema database có sẵn
@@ -98,7 +98,7 @@ Một dialect không diễn đạt được cấu trúc bạn dựng sẽ từ c
 | `oxider-query` | Crate facade người dùng phụ thuộc vào. Re-export core và derive macro. |
 | `oxider-query-core` | AST, tầng biểu thức type-safe, builder, trait `Dialect`, renderer. Không DB, không macro. |
 | `oxider-query-macros` | `#[derive(Entity)]` sinh metamodel. |
-| `oxider-query-exec` | Tùy chọn: thực thi async qua sqlx (SQLite hôm nay). Bind param, map row. |
+| `oxider-query-exec` | Tùy chọn: thực thi async qua sqlx (PostgreSQL và SQLite). Bind param, map row. |
 | `oxider-query-codegen` | Tùy chọn: introspect schema, sinh struct `Entity` từ database có sẵn (SQLite hôm nay). |
 
 ## Kiến trúc bốn tầng
@@ -119,8 +119,8 @@ Thêm một dialect là override vài entry, không nhân bản logic.
 
 Phiên bản 0.1.0, đang phát triển tích cực.
 
-Đã có: toàn bộ bề mặt SELECT (projection, mọi loại join, alias, `DISTINCT ON`, thứ tự NULL, khóa dòng, set operation, CTE kể cả đệ quy, window function, subquery tương quan), DML đầy đủ (insert nhiều dòng, insert-select, upsert, `RETURNING`, update-from, delete-using), khoảng 200 toán tử render cho ba dialect, cùng lớp thực thi và codegen cho SQLite.
+Đã có: toàn bộ bề mặt SELECT (projection, mọi loại join, alias, `DISTINCT ON`, thứ tự NULL, khóa dòng, set operation, CTE kể cả đệ quy, window function, subquery tương quan), DML đầy đủ (insert nhiều dòng, insert-select, upsert, `RETURNING`, update-from, delete-using), khoảng 200 toán tử render cho ba dialect, lớp thực thi cho PostgreSQL và SQLite, và codegen cho SQLite.
 
-Chưa có: backend thực thi và codegen cho PostgreSQL và MySQL, `#[derive(Projection)]`, GroupBy transformer.
+Chưa có: backend thực thi cho MySQL, codegen cho PostgreSQL và MySQL, `#[derive(Projection)]`, GroupBy transformer.
 
 Pre-1.0 nên API bám theo latest stable Rust và có thể thay đổi.

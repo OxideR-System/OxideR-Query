@@ -2,7 +2,7 @@
 
 Type-safe, multi-dialect SQL query builder for Rust, inspired by Java's [QueryDSL](https://github.com/querydsl/querydsl) but pushing type-safety further than a JVM can.
 
-> **The builder targets PostgreSQL, MySQL and SQLite. The optional execution layer and schema codegen currently support SQLite only.** On the other two you build and render here, then bind the `(sql, params)` pair with your own driver; you do not get the `Db` handle yet. If that is a blocker, [chapter 12](./docs/12-execution.md) shows what the handle does so you can judge how much you are missing.
+> **The builder targets PostgreSQL, MySQL and SQLite. The optional execution layer supports PostgreSQL and SQLite; schema codegen is SQLite only.** On MySQL you build and render here, then bind the `(sql, params)` pair with your own driver rather than using the `Db` handle. [Chapter 12](./docs/12-execution.md) shows what the handle does, so you can judge how much that costs you.
 
 > Status: 0.1.0, in active development. The full SELECT surface (every join, aliasing, `DISTINCT ON`, null ordering, row locking, set operations, CTEs including recursive ones, window functions, correlated subqueries), full DML (multi-row insert, insert-select, upsert, `RETURNING`, update-from, delete-using), and roughly 200 operators rendered for all three dialects. Pre-1.0, so the API tracks latest stable Rust and may change.
 
@@ -207,7 +207,7 @@ There is no `.to_sql(&Sqlite)` at the call site: the handle picks the dialect, s
 |-------|------|
 | `oxider-query-core` | AST, typed expression layer, builders, `Dialect` trait, renderer. No DB, no macros. |
 | `oxider-query-macros` | `#[derive(Entity)]` generating the query metamodel. |
-| `oxider-query-exec` | Optional async execution over sqlx (SQLite today). Binds params, maps rows. |
+| `oxider-query-exec` | Optional async execution over sqlx (PostgreSQL and SQLite). Binds params, maps rows. |
 | `oxider-query-codegen` | Optional schema introspection: generate `Entity` structs from an existing database (SQLite today). |
 | `oxider-query` | Facade crate that downstream users depend on. |
 
@@ -232,6 +232,7 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 |---|---|
 | `crates/oxider-query/tests/` | SELECT, joins, expressions, aggregates, windows, subqueries, set operations and CTEs, DML, entity mapping, and every example printed in the guide |
 | `crates/oxider-query-exec/tests/sqlite_end_to_end.rs` | the hard cases against a real database: escaped `LIKE` actually matching, emulated null ordering actually ordering, emulated `FILTER` counting the same rows as the native one, recursive CTEs, upserts, `RETURNING`, transaction rollback |
+| `crates/oxider-query-exec/tests/postgres_end_to_end.rs` | the strict backend: temporal parameters typed as the columns actually are, `DISTINCT ON` and native `FILTER` on a server that has them, named parameters, rollback. Skips unless `OXIDER_POSTGRES_URL` is set; `make pg-up test-pg pg-down` |
 | `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names |
 | `crates/oxider-query/tests/named_parameter_scenarios.rs` | named parameters: rebinding, an unbound name refused, resolution inside a correlated subquery |
 | `crates/oxider-query/tests/dynamic_query_depth_scenarios.rs` | flattened `AND`/`OR` chains, and the depth limit refusing rather than overflowing |
@@ -246,6 +247,7 @@ make check                    # fmt + clippy + tests + doc tests
 make test                     # tests only
 make bench                    # render-throughput microbench (criterion)
 make release VERSION=0.1.2    # bump, verify, tag, push, publish a GitHub release
+make pg-up test-pg pg-down    # PostgreSQL end-to-end against a throwaway server
 ```
 
 The underlying commands, for anyone who would rather not use `make`:
@@ -262,7 +264,7 @@ cargo bench -p oxider-query
 
 See `plans/260905-2058-querydsl-full-port/plan.md`.
 
-Remaining: PostgreSQL and MySQL execution and codegen backends (the builder is already multi-dialect, so each is parameter binding plus row typing), `#[derive(Projection)]`, and a GroupBy transformer.
+Remaining: the MySQL execution backend, PostgreSQL and MySQL codegen backends, `#[derive(Projection)]`, and a GroupBy transformer.
 
 ## License
 

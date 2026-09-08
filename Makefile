@@ -28,7 +28,7 @@ REMOTE ?= origin
 CURRENT_VERSION = $(shell grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
 
 .PHONY: help fmt fmt-check lint test test-doc check bench audit package publish-dry \
-        docs-serve docs-build clean version release
+        docs-serve docs-build clean version release pg-up pg-down test-pg
 
 help: ## List the targets
 	@echo "OxideR-Query - available targets"
@@ -58,6 +58,34 @@ test-doc: ## Doc tests, including the compile_fail guarantees
 
 check: fmt-check lint test test-doc ## Everything CI runs
 	@echo "check: clean"
+
+# The Postgres suite skips itself unless OXIDER_POSTGRES_URL is set, so these
+# three targets are the whole local setup: bring a server up, run against it,
+# throw it away.
+PG_CONTAINER ?= oxider-pg
+PG_PORT ?= 54329
+PG_URL ?= postgres://postgres:oxider@localhost:$(PG_PORT)/oxider
+
+pg-up: ## Start a throwaway PostgreSQL for the end-to-end suite
+	@docker run -d --name $(PG_CONTAINER) \
+		-e POSTGRES_PASSWORD=oxider -e POSTGRES_DB=oxider \
+		-p $(PG_PORT):5432 postgres:16 >/dev/null
+	@printf 'waiting for postgres'
+	@for i in $$(seq 1 30); do \
+		if docker exec $(PG_CONTAINER) pg_isready -U postgres -d oxider >/dev/null 2>&1; then \
+			echo " ready on $(PG_URL)"; exit 0; \
+		fi; \
+		printf '.'; sleep 1; \
+	done; \
+	echo " gave up"; exit 1
+
+pg-down: ## Remove the throwaway PostgreSQL
+	@docker rm -f $(PG_CONTAINER) >/dev/null 2>&1 || true
+	@echo "removed $(PG_CONTAINER)"
+
+test-pg: ## Run the PostgreSQL end-to-end suite against a running server
+	OXIDER_POSTGRES_URL=$(PG_URL) $(CARGO) test -p oxider-query-exec \
+		--features postgres --test postgres_end_to_end -- --test-threads=1
 
 bench: ## Render-throughput microbench (criterion)
 	$(CARGO) bench -p oxider-query

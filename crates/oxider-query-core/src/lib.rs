@@ -42,7 +42,7 @@ pub use typed::{
     BoolOps, Column, CompareOps, Entity, Expr, ExprExt, IntoExpr, MathOps, NumericAggOps, Only,
     Order, OrderOps, OrderedAggOps, Predicate, SelectionIn, Table, TemporalOps, TextOps, Window,
 };
-pub use value::{Numeric, Orderable, SqlType, Temporal, ToSqlValue, Value};
+pub use value::{formats, Numeric, Orderable, SqlType, Temporal, ToSqlValue, Value};
 
 /// Everything needed to write queries, in one import.
 ///

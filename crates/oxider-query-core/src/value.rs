@@ -173,17 +173,38 @@ impl<T: Temporal> Temporal for Option<T> {}
 /// engine parses that form in a date context, the text is identical across the
 /// three dialects, and it keeps the core free of a driver dependency - the
 /// execution layer binds a `Value::Date` as whatever its driver prefers.
+/// The textual forms [`Value`]'s temporal variants hold.
+///
+/// A temporal is stored as text because the AST has to stay independent of any
+/// date library, but an execution backend then has to read it back: PostgreSQL
+/// carries a type per bound parameter and rejects text where a `date` is
+/// expected, so its backend parses these before binding. Writing and reading
+/// are therefore two halves of one contract, and it only holds if both halves
+/// name the same format, which is why these are public rather than private to
+/// the writing side.
+pub mod formats {
+    /// `YYYY-MM-DD`.
+    pub const DATE: &str = "%Y-%m-%d";
+    /// `HH:MM:SS`, with a fractional part only when there is one.
+    pub const TIME: &str = "%H:%M:%S%.f";
+    /// `YYYY-MM-DD HH:MM:SS`, the form every engine accepts unquoted.
+    pub const DATE_TIME: &str = "%Y-%m-%d %H:%M:%S%.f";
+    /// An instant, with an explicit offset so an engine storing it in a zoned
+    /// column does not reinterpret it in the session's own zone.
+    ///
+    /// The offset is `%:z` rather than a literal `+00:00`, which formats
+    /// identically for a UTC instant but also parses: chrono will not read a
+    /// zoned timestamp from a format whose offset is plain text, so a literal
+    /// here would be writable and not readable.
+    pub const DATE_TIME_UTC: &str = "%Y-%m-%d %H:%M:%S%.f%:z";
+}
+
 #[cfg(feature = "chrono")]
 mod temporal {
     use super::{Orderable, SqlType, Temporal, ToSqlValue, Value};
     use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
-    /// `YYYY-MM-DD`.
-    const DATE: &str = "%Y-%m-%d";
-    /// `HH:MM:SS`, with a fractional part only when there is one.
-    const TIME: &str = "%H:%M:%S%.f";
-    /// `YYYY-MM-DD HH:MM:SS`, the form every engine accepts unquoted.
-    const DATE_TIME: &str = "%Y-%m-%d %H:%M:%S%.f";
+    use super::formats::{DATE, DATE_TIME, DATE_TIME_UTC, TIME};
 
     impl ToSqlValue for NaiveDate {
         fn to_sql_value(&self) -> Value {
@@ -207,7 +228,7 @@ mod temporal {
     /// zoned column does not reinterpret it in the session's own zone.
     impl ToSqlValue for DateTime<Utc> {
         fn to_sql_value(&self) -> Value {
-            Value::DateTime(self.format("%Y-%m-%d %H:%M:%S%.f+00:00").to_string())
+            Value::DateTime(self.format(DATE_TIME_UTC).to_string())
         }
     }
 

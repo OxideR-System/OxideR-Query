@@ -14,10 +14,15 @@
 //! [`Db::begin`] starts a transaction; the returned [`Tx`] handle exposes the
 //! same query methods and is finished with [`Tx::commit`] or [`Tx::rollback`].
 //!
-//! Backends are feature-gated via the [`Backend`] trait. Only SQLite is
-//! implemented today (default feature `sqlite`, handle alias [`SqliteDb`]);
-//! Postgres and MySQL slot in by implementing [`Backend`] for their sqlx
-//! `Database`, with no change to [`Db`] or [`Tx`].
+//! Backends are feature-gated via the [`Backend`] trait: SQLite (default
+//! feature `sqlite`, handle alias [`SqliteDb`]) and PostgreSQL (feature
+//! `postgres`, alias [`PostgresDb`]). MySQL slots in by implementing
+//! [`Backend`] for its sqlx `Database`, with no change to [`Db`] or [`Tx`].
+//!
+//! The two differ in exactly one place, parameter encoding, and only for
+//! temporal types: SQLite types a column by the value it is handed, while
+//! PostgreSQL carries a type per bound parameter and refuses text where a
+//! `date` belongs. See the `postgres` module for what that costs.
 //!
 //! ```no_run
 //! # async fn demo() -> oxider_query_exec::Result<()> {
@@ -45,6 +50,8 @@ mod error;
 mod ops;
 mod tx;
 
+#[cfg(feature = "postgres")]
+mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
@@ -82,3 +89,7 @@ pub trait Backend: Database {
 /// A [`Db`] handle for SQLite.
 #[cfg(feature = "sqlite")]
 pub type SqliteDb = Db<sqlx::Sqlite>;
+
+/// A [`Db`] handle for PostgreSQL.
+#[cfg(feature = "postgres")]
+pub type PostgresDb = Db<sqlx::Postgres>;
