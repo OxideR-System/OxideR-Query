@@ -5,7 +5,7 @@
 //! are mapped by type affinity to Rust types; a column that is not `NOT NULL`
 //! becomes `Option<_>`.
 
-use crate::identifier::{field_name, type_name};
+use crate::identifier::{escape_rust_string, field_name, type_name};
 use sqlx::{Row, SqlitePool};
 use std::fmt::Write;
 
@@ -35,8 +35,12 @@ pub async fn generate_entities(pool: &SqlitePool) -> Result<String, sqlx::Error>
 
 /// Emit one struct for `table`.
 async fn generate_struct(pool: &SqlitePool, table: &str) -> Result<String, sqlx::Error> {
-    // `table` comes from sqlite_master (trusted); quote it as an identifier.
-    let columns = sqlx::query(&format!("PRAGMA table_info(\"{table}\")"))
+    // The table-valued form of the pragma, so the name binds as a parameter.
+    // The statement form (`PRAGMA table_info("...")`) takes no parameters and
+    // would have to be built by interpolation, which a table name containing a
+    // double quote escapes out of.
+    let columns = sqlx::query("SELECT * FROM pragma_table_info(?)")
+        .bind(table)
         .fetch_all(pool)
         .await?;
 
@@ -55,10 +59,15 @@ async fn generate_struct(pool: &SqlitePool, table: &str) -> Result<String, sqlx:
         }
 
         // The column name may not be a legal Rust identifier. When escaping it
-        // changes the name, the attribute carries the real one back.
+        // changes the name, the attribute carries the real one back - as a
+        // string literal, so it is escaped for that context rather than spliced.
         let field = field_name(&name);
         if let Some(column_name) = field.rename {
-            let _ = writeln!(fields, "    #[oxider(column = \"{column_name}\")]");
+            let _ = writeln!(
+                fields,
+                "    #[oxider(column = \"{}\")]",
+                escape_rust_string(&column_name)
+            );
         }
         let _ = writeln!(fields, "    pub {}: {rust_type},", field.ident);
     }
@@ -66,7 +75,8 @@ async fn generate_struct(pool: &SqlitePool, table: &str) -> Result<String, sqlx:
     let mut out = String::new();
     let _ = write!(
         out,
-        "#[derive(Entity)]\n#[oxider(table = \"{table}\")]\npub struct {} {{\n{fields}}}\n",
+        "#[derive(Entity)]\n#[oxider(table = \"{}\")]\npub struct {} {{\n{fields}}}\n",
+        escape_rust_string(table),
         type_name(table)
     );
     Ok(out)

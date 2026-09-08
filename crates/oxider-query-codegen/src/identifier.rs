@@ -8,6 +8,11 @@
 //! - the real database name must never be lost. When sanitising changes the
 //!   name, the caller emits `#[oxider(column = "...")]` so the metamodel still
 //!   queries the column that exists.
+//!
+//! That attribute carries the name back as a Rust *string literal*, so it goes
+//! through [`escape_rust_string`] first. A schema is data: a table named
+//! `t)] pub struct Evil; //` has to stay data rather than close the attribute
+//! and become a second item in the generated file.
 
 /// Rust keywords that cannot appear as a field name.
 ///
@@ -106,9 +111,33 @@ fn sanitize(name: &str) -> String {
     out
 }
 
+/// Escape a database name for use inside a Rust double-quoted string literal.
+///
+/// The quote and the backslash are escaped so the literal cannot be closed
+/// early, and control characters are escaped so a newline cannot smuggle a
+/// second line of source into the generated file. Nothing is dropped:
+/// unescaping the literal yields the original name, which is what the
+/// metamodel needs in order to query the column that actually exists.
+pub(crate) fn escape_rust_string(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // Any other control character has no readable escape; spell it out.
+            c if c.is_control() => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{field_name, type_name};
+    use super::{escape_rust_string, field_name, type_name};
 
     #[test]
     fn type_name_handles_snake_dash_and_plain() {
@@ -151,5 +180,23 @@ mod tests {
         let name = field_name("email");
         assert_eq!(name.ident, "email");
         assert_eq!(name.rename, None);
+    }
+
+    #[test]
+    fn a_hostile_name_cannot_escape_the_string_literal() {
+        // The shape that used to write `pub fn pwn` into the generated file as
+        // a real item: the quote that closed the attribute is now escaped.
+        assert_eq!(
+            escape_rust_string(r#"a-b")] pub fn pwn() {} //"#),
+            r#"a-b\")] pub fn pwn() {} //"#
+        );
+        // A name with no quote in it never had to change, and still does not.
+        assert_eq!(
+            escape_rust_string("t)] pub struct Evil; //"),
+            "t)] pub struct Evil; //"
+        );
+        assert_eq!(escape_rust_string(r"back\slash"), r"back\\slash");
+        assert_eq!(escape_rust_string("two\nlines"), r"two\nlines");
+        assert_eq!(escape_rust_string("bell\u{7}"), r"bell\u{7}");
     }
 }

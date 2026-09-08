@@ -174,6 +174,66 @@ pub struct Things {
     assert_eq!(valid_rust(&source), expected);
 }
 
+/// The items a source file declares, so a test can assert nothing extra was
+/// smuggled in alongside the struct that was asked for.
+fn item_names(source: &str) -> Vec<String> {
+    syn::parse_file(source)
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| match item {
+            syn::Item::Struct(s) => format!("struct {}", s.ident),
+            syn::Item::Fn(f) => format!("fn {}", f.sig.ident),
+            _ => "other item".to_string(),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_column_name_cannot_inject_items_into_the_generated_source() {
+    // A name crafted to close the `#[oxider(column = "...")]` literal, close
+    // the struct, declare an item, and re-open a struct so the trailing field
+    // and brace still parse. Before the names were escaped this produced a
+    // valid Rust file containing `pub fn pwn`.
+    let hostile = r#"a")] pub ok: i64 } pub fn pwn() -> i64 { 42 } pub struct Tail { x: i64, // "#;
+    let quoted = hostile.replace('"', "\"\"");
+    let pool = database(&[&format!(
+        r#"CREATE TABLE t (id INTEGER PRIMARY KEY, "{quoted}" INTEGER)"#
+    )])
+    .await;
+
+    let source = oxider_query_codegen::generate_entities(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(item_names(valid_rust(&source)), ["struct T"]);
+    // The real column name survives, escaped, so the metamodel still queries it.
+    assert!(source.contains(r#"#[oxider(column = "a\")] pub ok: i64 } pub fn pwn() -> i64 { 42 } pub struct Tail { x: i64, // ")]"#));
+}
+
+#[tokio::test]
+async fn a_table_name_with_a_quote_is_introspected_and_escaped() {
+    // The quote used to escape out of `PRAGMA table_info("...")`, so
+    // introspection failed outright with a syntax error from SQLite.
+    let pool = database(&[r#"CREATE TABLE "ev""il" (id INTEGER PRIMARY KEY)"#]).await;
+
+    let source = oxider_query_codegen::generate_entities(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        valid_rust(&source),
+        "\
+#[derive(Entity)]
+#[oxider(table = \"ev\\\"il\")]
+pub struct EvIl {
+    pub id: i64,
+}
+"
+    );
+    assert_eq!(item_names(&source), ["struct EvIl"]);
+}
+
 #[tokio::test]
 async fn a_database_with_no_user_tables_generates_nothing() {
     let pool = database(&[]).await;
