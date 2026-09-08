@@ -2,7 +2,9 @@
 
 Type-safe, multi-dialect SQL query builder for Rust, inspired by Java's [QueryDSL](https://github.com/querydsl/querydsl) but pushing type-safety further than a JVM can.
 
-> Status: 0.1.0, in active development. The full SELECT surface (every join, aliasing, `DISTINCT ON`, null ordering, row locking, set operations, CTEs including recursive ones, window functions, correlated subqueries), full DML (multi-row insert, insert-select, upsert, `RETURNING`, update-from, delete-using), roughly 200 operators rendered for PostgreSQL, MySQL and SQLite, plus optional async execution and schema codegen over SQLite. Pre-1.0, so the API tracks latest stable Rust and may change.
+> **The builder targets PostgreSQL, MySQL and SQLite. The optional execution layer and schema codegen currently support SQLite only.** On the other two you build and render here, then bind the `(sql, params)` pair with your own driver; you do not get the `Db` handle yet. If that is a blocker, [chapter 12](./docs/12-execution.md) shows what the handle does so you can judge how much you are missing.
+
+> Status: 0.1.0, in active development. The full SELECT surface (every join, aliasing, `DISTINCT ON`, null ordering, row locking, set operations, CTEs including recursive ones, window functions, correlated subqueries), full DML (multi-row insert, insert-select, upsert, `RETURNING`, update-from, delete-using), and roughly 200 operators rendered for all three dialects. Pre-1.0, so the API tracks latest stable Rust and may change.
 
 The user guide lives in [`docs/`](./docs/README.md), in Vietnamese, and is also published as a [Docusaurus site](./website).
 
@@ -237,12 +239,23 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 
 ## Development
 
+`make check` runs the gate CI runs. `make help` lists every target.
+
 ```bash
+make check                    # fmt + clippy + tests + doc tests
+make test                     # tests only
+make bench                    # render-throughput microbench (criterion)
+make release VERSION=0.1.2    # bump, verify, tag, push, publish a GitHub release
+```
+
+The underlying commands, for anyone who would rather not use `make`:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 cargo test --workspace --all-features --doc
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo fmt --all --check
-cargo bench -p oxider-query   # render-throughput microbench (criterion)
+cargo bench -p oxider-query
 ```
 
 ## Roadmap
