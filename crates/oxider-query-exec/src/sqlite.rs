@@ -15,6 +15,10 @@ use sqlx::Sqlite;
 /// values round-trip. Temporal values bind as text in the ISO-8601 form SQLite's
 /// own date functions expect. `NULL` binds as a typed `None` so sqlx sends SQL
 /// NULL.
+///
+/// Text and blobs bind by reference. The parameter slice outlives the query -
+/// that is what the `'q` lifetime on `params` says - so copying a large payload
+/// here would be a second copy of something the renderer already cloned once.
 macro_rules! bind_params {
     ($query:expr, $params:expr) => {{
         let mut query = $query;
@@ -23,9 +27,9 @@ macro_rules! bind_params {
                 Value::Bool(b) => query.bind(*b),
                 Value::Int(i) => query.bind(*i),
                 Value::Real(r) => query.bind(*r),
-                Value::Text(s) => query.bind(s.clone()),
-                Value::Bytes(b) => query.bind(b.clone()),
-                Value::Date(s) | Value::Time(s) | Value::DateTime(s) => query.bind(s.clone()),
+                Value::Text(s) => query.bind(s.as_str()),
+                Value::Bytes(b) => query.bind(b.as_slice()),
+                Value::Date(s) | Value::Time(s) | Value::DateTime(s) => query.bind(s.as_str()),
                 Value::Null => query.bind(Option::<i64>::None),
             };
         }

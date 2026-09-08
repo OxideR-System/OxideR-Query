@@ -85,7 +85,13 @@ where
                 Ok(value)
             }
             Err(err) => {
-                tx.rollback().await?;
+                // The caller's error is the one worth reporting. A rollback
+                // that fails almost always fails because the connection is
+                // already broken - which is usually why the statement failed in
+                // the first place - so propagating the rollback error instead
+                // would replace the cause with a symptom. Dropping the handle
+                // rolls back too, so nothing stays open either way.
+                let _ = tx.rollback().await;
                 Err(err)
             }
         }
