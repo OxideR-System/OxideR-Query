@@ -19,6 +19,23 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # `--all-targets` silently skips doc tests, and every compile-time
+      # guarantee this library advertises is pinned by a `compile_fail` doc
+      # test, so the two runs together are what actually covers the suite.
       - name: Test
-        run: cargo test --all
+        run: cargo test --workspace --all-targets --all-features
+      - name: Doc tests
+        run: cargo test --workspace --all-features --doc
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # Vulnerabilities fail the job; unmaintained-crate warnings do not, so a
+      # transitive dependency going quiet does not block unrelated work.
+      - name: Audit dependencies
+        run: cargo audit

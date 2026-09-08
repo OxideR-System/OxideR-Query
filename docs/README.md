@@ -36,6 +36,7 @@ Bộ tài liệu này đi từ cài đặt tới lúc chạy query trên databas
 | [13. Sinh entity từ schema](./13-codegen.md) | Crate `oxider-query-codegen`, introspect database có sẵn. |
 | [14. Bảo đảm type-safety](./14-type-safety.md) | Những lỗi bị bắt lúc biên dịch, và giới hạn của cách kiểm tra này. |
 | [15. Tra cứu nhanh API](./15-api-cheatsheet.md) | Bảng tổng hợp mọi phương thức và toán tử. |
+| [16. Mô hình bảo mật](./16-security-model.md) | Ranh giới tin cậy, giá trị và định danh, `raw`, tham số đặt tên, giới hạn độ sâu. |
 
 ## Cài đặt
 

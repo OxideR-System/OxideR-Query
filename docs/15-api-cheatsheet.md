@@ -181,10 +181,18 @@ Trên mọi biểu thức (trait `ExprExt`):
 let rendered = query.to_sql(&Postgres)?;   // Rendered { sql, params }
 ```
 
+Mọi builder đều có `bind(name, value)`, điền giá trị cho một `param::<T>(name)` ở bất kỳ đâu trong câu lệnh.
+
+```rust
+let mau = User::query().filter(User::age.ge(param::<i32>("tuoi")));
+mau.clone().bind("tuoi", 18).to_sql(&Postgres)?;
+mau.bind("tuoi", 21).to_sql(&Postgres)?;
+```
+
 | Kiểu | Ý nghĩa |
 |---|---|
 | `Rendered` | `{ sql: String, params: Vec<Value> }` |
-| `RenderError` | `UnsupportedOperator`, `UnsupportedFeature`, `MissingArgument`, `Invalid` |
+| `RenderError` | `UnsupportedOperator`, `UnsupportedFeature`, `MissingArgument`, `Invalid`, `TooDeep`, `UnboundParameter` |
 | `Dialect` | `Postgres`, `MySql`, `Sqlite` |
 
 ```rust
@@ -211,3 +219,7 @@ db.transaction(async |tx| { ... }).await?;
 | `Subquery<F, T>` | subquery trả `T`, tự do trong `F` |
 | `Only<E>` | tập chỉ chứa một entity |
 | `Merge<A, B>` | tập ghép của hai tập |
+
+## Bước tiếp theo
+
+[Chương 16](./16-security-model.md) mô tả ranh giới tin cậy: cái gì được bind, cái gì được nội suy, và bạn chịu trách nhiệm ở đâu.

@@ -136,6 +136,36 @@ Order::status.sum();
 
 Every query tracks its in-scope tables at the type level, so `filter`, `select` and `order_by` only accept columns of tables that are actually there. A correlated subquery additionally tracks the outer entities it is free in, so using one where the outer table is absent is also a compile error. Each guarantee has a `compile_fail` doc test; see [chapter 14](./docs/14-type-safety.md), which is also honest about what is *not* checked.
 
+## Security model
+
+**Values always bind, identifiers are always constants.** Anything you compare, assign or insert becomes a placeholder plus an entry in `params`. Anything that names a table, column, alias or schema has type `&'static str`, so it has to be a literal in your source or codegen output. A `String` built at runtime does not compile in an identifier position, which is the point:
+
+```rust
+let name = format!("t_{input}");
+select_from_name(&name);
+// error[E0597]: `name` does not live long enough
+```
+
+The single way around that is `String::leak`, which is a hole you open yourself. Match untrusted input against a whitelist of literals instead. Rendered identifiers are still dialect-quoted with inner quotes doubled, but that is the second line of defence, not the first.
+
+`raw`, `RawBuilder` and `col` splice SQL verbatim. All of them take `&'static str`, so untrusted input cannot reach them, but they bypass the template layer entirely: treat their contents as source code and bind values with `RawBuilder::bind` rather than interpolating.
+
+`LIMIT` and `OFFSET` are inlined rather than bound. They are `u64`, so there is nothing to inject.
+
+Named parameters make a statement a template. `param::<T>("name")` places the hole, `bind("name", value)` fills it, and a name left unbound is `Err(RenderError::UnboundParameter)` rather than a query missing a condition:
+
+```rust
+let template = User::query().filter(User::age.ge(param::<i32>("min_age")));
+template.clone().bind("min_age", 18).to_sql(&Postgres)?;
+template.bind("min_age", 21).to_sql(&Postgres)?;
+```
+
+Chained `AND`/`OR` flatten into one many-operand node, so a thousand dynamic filters stay one level deep. Genuinely deep trees stop at `MAX_DEPTH` (256) with `Err(RenderError::TooDeep)` instead of overflowing the stack.
+
+`oxider-query-codegen` binds the table name into its introspection query and escapes table and column names as Rust string literals in the generated source, so a hostile schema is a naming problem rather than a code-execution one. It is still a build-time tool: point it at a database you trust.
+
+[Chapter 16](./docs/16-security-model.md) has the full trust boundary, with a table of who is responsible for what.
+
 ## Running queries
 
 The core builder is execution-agnostic. The optional `oxider-query-exec` crate provides one `Db` handle wrapping a sqlx pool: it renders with the backend's own dialect, binds the parameters and runs the statement, mapping rows into any `sqlx::FromRow` type.
@@ -181,7 +211,7 @@ There is no `.to_sql(&Sqlite)` at the call site: the handle picks the dialect, s
 
 ## Documentation
 
-The guide is in [`docs/`](./docs/README.md), fifteen chapters from installation through to the API reference.
+The guide is in [`docs/`](./docs/README.md), sixteen chapters from installation through to the API reference and the security model.
 
 The `website/` directory renders that same directory as a Docusaurus site, so there is one copy of the guide:
 
@@ -201,13 +231,15 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 | `crates/oxider-query/tests/` | SELECT, joins, expressions, aggregates, windows, subqueries, set operations and CTEs, DML, entity mapping, and every example printed in the guide |
 | `crates/oxider-query-exec/tests/sqlite_end_to_end.rs` | the hard cases against a real database: escaped `LIKE` actually matching, emulated null ordering actually ordering, emulated `FILTER` counting the same rows as the native one, recursive CTEs, upserts, `RETURNING`, transaction rollback |
 | `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names |
+| `crates/oxider-query/tests/named_parameter_scenarios.rs` | named parameters: rebinding, an unbound name refused, resolution inside a correlated subquery |
+| `crates/oxider-query/tests/dynamic_query_depth_scenarios.rs` | flattened `AND`/`OR` chains, and the depth limit refusing rather than overflowing |
 | doc tests | each advertised compile-time guarantee, as `compile_fail` |
 
 ## Development
 
 ```bash
-cargo test --workspace --all-targets
-cargo test --workspace --doc
+cargo test --workspace --all-targets --all-features
+cargo test --workspace --all-features --doc
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 cargo bench -p oxider-query   # render-throughput microbench (criterion)
