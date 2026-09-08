@@ -31,7 +31,7 @@ REMOTE ?= origin
 CURRENT_VERSION = $(shell grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
 
 .PHONY: help fmt fmt-check lint test test-doc check bench audit package publish-dry \
-        docs-serve docs-build clean version release pg-up pg-down test-pg
+        docs-serve docs-build clean version release pg-up pg-down test-pg audit-or-warn
 
 help: ## List the targets
 	@echo "OxideR-Query - available targets"
@@ -100,6 +100,17 @@ audit: ## Check dependencies for security advisories
 	}
 	$(CARGO) audit
 
+# `check` cannot require cargo-audit, since not every contributor will have it,
+# but a release must not ship a lock file with a known advisory in it. So the
+# release runs it when it can and says plainly when it cannot, rather than
+# quietly skipping and letting CI find out after the tag is already public.
+audit-or-warn:
+	@if command -v cargo-audit >/dev/null 2>&1; then \
+		$(CARGO) audit; \
+	else \
+		echo "WARNING: cargo-audit is not installed, releasing without an advisory check"; \
+	fi
+
 package: ## List what each crate would ship to crates.io
 	@for crate in oxider-query-macros oxider-query-core oxider-query-exec oxider-query-codegen oxider-query; do \
 		echo "=== $$crate ==="; \
@@ -163,6 +174,7 @@ release: ## Bump, verify, tag and publish a GitHub release. VERSION=x.y.z requir
 		echo "manifests already declare $(VERSION), no bump commit"; \
 	fi
 	@$(MAKE) --no-print-directory check
+	@$(MAKE) --no-print-directory audit-or-warn
 	@git tag -a "v$(VERSION)" -m "v$(VERSION)"
 	@git push --quiet $(REMOTE) $(RELEASE_BRANCH)
 	@git push --quiet $(REMOTE) "v$(VERSION)"
