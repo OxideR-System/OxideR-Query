@@ -191,7 +191,12 @@ where
         // `IN ()` is not valid SQL. An empty membership test is a constant, and
         // saying so keeps a dynamically built filter from silently matching
         // everything.
-        let always = if negated { "1 = 1" } else { "1 = 0" };
+        //
+        // The parentheses are part of the constant rather than left to the
+        // precedence ladder: the renderer treats a keyword as an atom that
+        // never needs wrapping, so an unparenthesised `1 = 0` composed into a
+        // further comparison produced `1 = 0 = $1`.
+        let always = if negated { "(1 = 1)" } else { "(1 = 0)" };
         return Expr::new(Node::Keyword(always));
     }
     let op = if negated {

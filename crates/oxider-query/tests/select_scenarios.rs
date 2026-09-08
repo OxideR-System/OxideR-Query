@@ -105,14 +105,28 @@ fn placeholder_numbering_follows_the_order_values_appear() {
 fn an_empty_in_list_becomes_a_predicate_that_is_never_true() {
     let ids: Vec<i64> = Vec::new();
     let query = User::query().filter(User::id.in_values(ids));
-    assert_sql_only(query, &Postgres, r#"SELECT * FROM "users" WHERE 1 = 0"#);
+    assert_sql_only(query, &Postgres, r#"SELECT * FROM "users" WHERE (1 = 0)"#);
 }
 
 #[test]
 fn an_empty_not_in_list_becomes_a_predicate_that_is_always_true() {
     let ids: Vec<i64> = Vec::new();
     let query = User::query().filter(User::id.not_in_values(ids));
-    assert_sql_only(query, &Postgres, r#"SELECT * FROM "users" WHERE 1 = 1"#);
+    assert_sql_only(query, &Postgres, r#"SELECT * FROM "users" WHERE (1 = 1)"#);
+}
+
+#[test]
+fn the_empty_membership_constant_composes_like_any_other_predicate() {
+    // The constant carries its own parentheses, because the renderer treats a
+    // keyword as an atom that never needs wrapping. Without them, composing it
+    // further produced `1 = 0 = $1`.
+    let ids: Vec<i64> = Vec::new();
+    assert_sql(
+        User::query().filter(User::id.in_values(ids).eq(true)),
+        &Postgres,
+        r#"SELECT * FROM "users" WHERE (1 = 0) = $1"#,
+        &[flag(true)],
+    );
 }
 
 #[test]
