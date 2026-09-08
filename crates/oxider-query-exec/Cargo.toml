@@ -19,7 +19,7 @@ sqlite = ["sqlx/sqlite"]
 postgres = ["sqlx/postgres", "sqlx/chrono", "dep:chrono"]
 
 [dev-dependencies]
-oxider-query = { path = "../oxider-query", version = "0.1.0" }
+oxider-query.workspace = true
 tokio = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }

@@ -25,6 +25,9 @@ RELEASE_BRANCH ?= main
 REMOTE ?= origin
 
 # The version the manifests currently declare, used to rewrite them in place.
+# Every crate inherits it via `version.workspace = true`, and every cross-crate
+# dependency states it in the workspace table, so the root manifest is the only
+# file a bump has to touch.
 CURRENT_VERSION = $(shell grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
 
 .PHONY: help fmt fmt-check lint test test-doc check bench audit package publish-dry \

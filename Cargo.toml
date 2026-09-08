@@ -19,6 +19,9 @@ authors = ["OxideR System"]
 oxider-query-core = { path = "crates/oxider-query-core", version = "0.1.0" }
 oxider-query-macros = { path = "crates/oxider-query-macros", version = "0.1.0" }
 oxider-query-exec = { path = "crates/oxider-query-exec", version = "0.1.0" }
+# The facade, for the exec crate's own tests. Every cross-crate version lives
+# in this table so a release bumps one file.
+oxider-query = { path = "crates/oxider-query", version = "0.1.0" }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
