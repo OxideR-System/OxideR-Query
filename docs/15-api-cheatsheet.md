@@ -220,6 +220,20 @@ db.transaction(async |tx| { ... }).await?;
 | `Only<E>` | tập chỉ chứa một entity |
 | `Merge<A, B>` | tập ghép của hai tập |
 
+Các marker type-state, cần khi viết chữ ký hàm trả về một statement. Tất cả đều có trong prelude.
+
+| Kiểu | Nghĩa |
+|---|---|
+| `Unlocked` / `Locked` | `Select` đã có mệnh đề khóa dòng hay chưa |
+| `NoRows` / `OneRow` / `FromQuery` | `Insert` lấy dữ liệu từ đâu |
+| `NoFrame` / `Framed` | `Window` đã đặt frame hay chưa |
+
+```rust
+fn new_user(name: &str) -> Insert<User, OneRow> { ... }
+fn next_job() -> Select<Only<Job>, Nil, Locked> { ... }
+fn trailing_total() -> Window<Nil, Framed> { ... }
+```
+
 ## Bước tiếp theo
 
 [Chương 16](./16-security-model.md) mô tả ranh giới tin cậy: cái gì được bind, cái gì được nội suy, và bạn chịu trách nhiệm ở đâu.

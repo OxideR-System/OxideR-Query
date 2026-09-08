@@ -148,6 +148,31 @@
 //! User::insert().from_query(User::query().select(User::name)).set(User::name, "ada");
 //! ```
 //!
+//! A helper that returns a statement, written with nothing but the prelude.
+//! The type-state markers have to be nameable for this to compile, which is
+//! why they are exported alongside the builders rather than tucked away in
+//! their own modules.
+//!
+//! ```
+//! # use oxider_query::prelude::*;
+//! # #[derive(Entity)] #[oxider(table = "users")]
+//! # struct User { id: i64, name: String }
+//! # #[derive(Entity)] #[oxider(table = "jobs")]
+//! # struct Job { id: i64 }
+//! fn new_user(name: &str) -> Insert<User, OneRow> {
+//!     User::insert().set(User::name, name.to_string())
+//! }
+//!
+//! fn next_job() -> Select<Only<Job>, Nil, Locked> {
+//!     Job::query().limit(1).for_update().skip_locked()
+//! }
+//!
+//! fn trailing_total() -> Window<Nil, Framed> {
+//!     Window::new().rows(FrameBound::Preceding(2), Some(FrameBound::CurrentRow))
+//! }
+//! # let _ = (new_user("ada"), next_job(), trailing_total());
+//! ```
+//!
 //! A table name built at runtime. Identifiers are `&'static str` precisely so
 //! that a string an application assembled cannot become one, which is what
 //! keeps identifier injection off the table; values go through the bind list

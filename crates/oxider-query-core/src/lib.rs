@@ -30,8 +30,8 @@ pub mod value;
 
 pub use ast::{FrameBound, FrameExclusion, FrameUnit, Node, Operator};
 pub use builder::{
-    exists, not_exists, select_from, select_from_name, select_only, Delete, Insert, Select,
-    Subquery, SubqueryOps, Update,
+    exists, not_exists, select_from, select_from_name, select_only, Delete, FromQuery, Insert,
+    Locked, NoRows, OneRow, Select, Subquery, SubqueryOps, Unlocked, Update,
 };
 pub use dialect::{Caps, CastKind, Dialect, MySql, Postgres, Sqlite, Template};
 pub use render::{Bindings, RenderError, RenderResult, Renderable, Rendered, MAX_DEPTH};
@@ -39,8 +39,9 @@ pub use source::{Cons, Nil};
 pub use typed::{
     case_when, coalesce, col, count_all, curr_val, current_date, current_time, current_timestamp,
     greatest, least, next_val, null, nullif, param, raw, val, AggOps, Aggregate, Aliased, AnyExpr,
-    BoolOps, Column, CompareOps, Entity, Expr, ExprExt, IntoExpr, MathOps, NumericAggOps, Only,
-    Order, OrderOps, OrderedAggOps, Predicate, SelectionIn, Table, TemporalOps, TextOps, Window,
+    BoolOps, Column, CompareOps, Entity, Expr, ExprExt, Framed, IntoExpr, MathOps, NoFrame,
+    NumericAggOps, Only, Order, OrderOps, OrderedAggOps, Predicate, SelectionIn, Table,
+    TemporalOps, TextOps, Window,
 };
 pub use value::{formats, Numeric, Orderable, SqlType, Temporal, ToSqlValue, Value};
 
@@ -56,6 +57,14 @@ pub use value::{formats, Numeric, Orderable, SqlType, Temporal, ToSqlValue, Valu
 /// `Option<Predicate<Only<E>>>` because there is nothing for inference to work
 /// from.
 ///
+/// The type-state markers are here too: `Unlocked`/`Locked` for a SELECT's
+/// locking clause, `NoRows`/`OneRow`/`FromQuery` for what an INSERT's rows came
+/// from, and `NoFrame`/`Framed` for a window. They are never written when
+/// building a query, only when naming one, and naming one is exactly what a
+/// function signature does. Leaving them out meant that writing
+/// `fn make() -> Insert<User, OneRow>` sent the reader hunting through modules
+/// for a type the prelude had already implied.
+///
 /// [`Order`](crate::Order) and [`Table`](crate::Table) are deliberately left
 /// out. Both are ordinary domain nouns that an application is likely to use as
 /// an entity name, and neither has to be written down: `order_by` takes the
@@ -64,8 +73,8 @@ pub use value::{formats, Numeric, Orderable, SqlType, Temporal, ToSqlValue, Valu
 pub mod prelude {
     pub use crate::ast::{FrameBound, FrameExclusion, FrameUnit};
     pub use crate::builder::{
-        all_of, exists, not_exists, select_from, select_from_name, select_only, Delete, Insert,
-        Select, Subquery, SubqueryOps, Update,
+        all_of, exists, not_exists, select_from, select_from_name, select_only, Delete, FromQuery,
+        Insert, Locked, NoRows, OneRow, Select, Subquery, SubqueryOps, Unlocked, Update,
     };
     pub use crate::dialect::{CastKind, Dialect, MySql, Postgres, Sqlite};
     pub use crate::render::{RenderError, Renderable, Rendered};
@@ -75,9 +84,9 @@ pub mod prelude {
         current_time, current_timestamp, dense_rank, first_value, greatest, group_concat, lag,
         last_value, lead, least, next_val, nth_value, ntile, null, nullif, param, percent_rank,
         random, rank, raw, round_to, row_number, star, star_of, val, AggOps, Aggregate, Aliased,
-        AnyExpr, BoolOps, Column, CompareOps, Entity, Expr, ExprExt, IntoExpr, MathOps,
-        NumericAggOps, Only, OrderOps, OrderedAggOps, Predicate, SelectionIn, TemporalOps, TextOps,
-        Window,
+        AnyExpr, BoolOps, Column, CompareOps, Entity, Expr, ExprExt, Framed, IntoExpr, MathOps,
+        NoFrame, NumericAggOps, Only, OrderOps, OrderedAggOps, Predicate, SelectionIn, TemporalOps,
+        TextOps, Window,
     };
     #[cfg(feature = "chrono")]
     pub use crate::typed::{now, today};
