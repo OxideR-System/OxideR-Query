@@ -1,6 +1,6 @@
 //! The [`Db`] handle: a sqlx pool paired with its backend's dialect.
 
-use crate::{ops, Backend, Result, Tx};
+use crate::{ops, Backend, Projection, Result, Tx};
 use oxider_query_core::Renderable;
 use sqlx::{Database, FromRow, Pool};
 
@@ -131,5 +131,37 @@ where
         Q: Renderable,
     {
         ops::fetch_optional(&self.pool, query).await
+    }
+
+    /// Run a query and read every row by column position into `O`.
+    ///
+    /// The positional counterpart of [`fetch_all`](Db::fetch_all): `O` is a
+    /// [`Projection`] rather than a `FromRow`, so it matches the order of the
+    /// `select` list instead of column names, and tuples of projections read one
+    /// flat join into several structs.
+    pub async fn fetch_all_projected<O, Q>(&self, query: Q) -> Result<Vec<O>>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+    {
+        ops::fetch_all_projected(&self.pool, query).await
+    }
+
+    /// Run a query expected to return exactly one row, read by column position.
+    pub async fn fetch_one_projected<O, Q>(&self, query: Q) -> Result<O>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+    {
+        ops::fetch_one_projected(&self.pool, query).await
+    }
+
+    /// Run a query that may return zero or one row, read by column position.
+    pub async fn fetch_optional_projected<O, Q>(&self, query: Q) -> Result<Option<O>>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+    {
+        ops::fetch_optional_projected(&self.pool, query).await
     }
 }

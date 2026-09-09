@@ -51,6 +51,8 @@ use sqlx::Database;
 mod db;
 mod error;
 mod ops;
+mod projection;
+mod transform;
 mod tx;
 
 #[cfg(feature = "mysql")]
@@ -62,6 +64,8 @@ mod sqlite;
 
 pub use db::Db;
 pub use error::{Error, Result};
+pub use projection::Projection;
+pub use transform::group_children;
 pub use tx::Tx;
 
 /// A database backend: the SQL dialect to render for, plus how to bind rendered

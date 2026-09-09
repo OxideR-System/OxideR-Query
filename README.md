@@ -188,6 +188,29 @@ let adults: Vec<User> = db
 
 There is no `.to_sql(&Sqlite)` at the call site: the handle picks the dialect, so pointing at another database is a one-line change of the handle's type and touches no query code.
 
+### Projections and one-to-many
+
+`fetch_all` maps rows through `sqlx::FromRow`, which matches by column name and so needs an alias on every expression. `#[derive(Projection)]` matches by position instead: field *n* reads column *n* of the struct's span, following the `select` list.
+
+```rust
+#[derive(Entity, Projection)]
+#[oxider(table = "users")]
+struct User { id: i64, name: String, age: i64 }
+
+let users: Vec<User> = db
+    .fetch_all_projected(User::query().select((User::id, User::name, User::age)))
+    .await?;
+```
+
+Because each projection knows its own width, a tuple of them splits one flat join into several structs, and `Option<P>` is `None` exactly when its whole span is NULL - what a `LEFT JOIN` that matched nothing produces. `group_children` then folds that back into the shape it describes, without a second query per parent:
+
+```rust
+let rows: Vec<(User, Option<Order>)> = db.fetch_all_projected(query).await?;
+let tree: Vec<(User, Vec<Order>)> = group_children(rows, |user| user.id);
+```
+
+Parents keep the order they first appeared in and children the order they arrived, so the query's `ORDER BY` survives the fold. What is *not* checked is whether the projection's width matches the query's own `select` list: that mismatch is a column error from the first row, not a compile error. [Chapter 12](./docs/12-execution.md) says why.
+
 `db.transaction(async |tx| { ... })` scopes a transaction to a closure, committing on `Ok` and rolling back on `Err`, so a commit is never forgotten. `db.begin()` is the manual form.
 
 `oxider_query_exec::Error` separates `Render` from `Database`, so a query the engine cannot express fails before a connection is touched.
@@ -233,6 +256,7 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 | `crates/oxider-query/tests/` | SELECT, joins, expressions, aggregates, windows, subqueries, set operations and CTEs, DML, entity mapping, and every example printed in the guide |
 | `crates/oxider-query-exec/tests/sqlite_end_to_end.rs` | the hard cases against a real database: escaped `LIKE` actually matching, emulated null ordering actually ordering, emulated `FILTER` counting the same rows as the native one, recursive CTEs, upserts, `RETURNING`, transaction rollback |
 | `crates/oxider-query-exec/tests/postgres_end_to_end.rs` | the strict backend: temporal parameters typed as the columns actually are, `DISTINCT ON` and native `FILTER` on a server that has them, named parameters, rollback. Skips unless `OXIDER_POSTGRES_URL` is set; `make pg-up test-pg pg-down` |
+| `crates/oxider-query-exec/tests/projection_and_grouping.rs` | positional projections and the group-by fold: the `select` order deciding which field gets which column, a tuple splitting a flat join, `Option` going `None` only when its whole span is NULL, and the fold keeping the query's order |
 | `crates/oxider-query-exec/tests/mysql_end_to_end.rs` | the dialect that emulates the most: null ordering and aggregate `FILTER` rewritten and still returning the right rows, `ON DUPLICATE KEY UPDATE`, an instant landing in a `DATETIME` unshifted by the session zone, and `RETURNING` and `FULL JOIN` refused before a connection is touched. Skips unless `OXIDER_MYSQL_URL` is set; `make mysql-up test-mysql mysql-down` |
 | `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names |
 | `crates/oxider-query/tests/named_parameter_scenarios.rs` | named parameters: rebinding, an unbound name refused, resolution inside a correlated subquery |

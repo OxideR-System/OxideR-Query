@@ -188,6 +188,76 @@ Hoặc dùng `DATETIME` cho mốc thời gian, hoặc tự đặt zone cho sessi
 SET time_zone = '+00:00'
 ```
 
+## 12.8. Projection: đọc hàng theo vị trí
+
+`fetch_all` map hàng bằng `sqlx::FromRow`, tức là **khớp theo tên cột**.
+Cách đó buộc mọi biểu thức trong `select` phải có alias, và sai tên chỉ lộ ra khi có hàng trả về.
+
+`#[derive(Projection)]` làm ngược lại: field thứ *n* đọc cột thứ *n* trong **span** của nó, tức là bám theo thứ tự của `select`.
+
+```rust
+#[derive(Entity, Projection)]
+#[oxider(table = "users")]
+struct User {
+    id: i64,
+    name: String,
+    age: i64,
+}
+
+let users: Vec<User> = db
+    .fetch_all_projected(User::query().select((User::id, User::name, User::age)))
+    .await?;
+```
+
+Không alias nào cả. Đổi thứ tự trong `select` thì đổi luôn field nào nhận cột nào.
+
+Mã sinh ra gọi tên `oxider-query-exec` chứ không phải facade, vì projection chỉ có nghĩa khi có thứ đang chạy query.
+
+`#[oxider(skip)]` không ăn cột nào và được điền bằng `Default::default()`, vì hàng không mang gì cho nó cả.
+
+### Span ghép được
+
+Vì mỗi projection biết mình rộng bao nhiêu cột, một tuple projection chia một hàng phẳng thành nhiều struct: phần tử sau bắt đầu ở chỗ phần tử trước kết thúc, và các bề rộng được cộng ở tầng type chứ không đọc từ hàng.
+
+```rust
+let rows: Vec<(User, Option<Order>)> = db
+    .fetch_all_projected(
+        User::query()
+            .left_join(Order::table(), Order::user_id.eq(User::id))
+            .select((User::id, User::name, User::age,
+                     Order::id, Order::user_id, Order::total))
+            .order_by(User::id.asc()),
+    )
+    .await?;
+```
+
+`Option<P>` là `None` khi **mọi** cột trong span của nó đều NULL, đúng thứ một `LEFT JOIN` không khớp sinh ra.
+Nếu chỉ một phần span là NULL thì đó là hàng thật có cột nullable, nên nó vẫn `Some`.
+
+### Điều KHÔNG được kiểm tra
+
+Bề rộng của projection có khớp với `select` hay không thì **không** được kiểm tra lúc biên dịch.
+`Select` xoá projection thành `Vec<Node>` ngay khi dựng xong, nên không còn kiểu nào để đối chiếu.
+Lệch nhau sẽ hiện ra thành lỗi chỉ số cột từ hàng đầu tiên, không phải lỗi biên dịch.
+
+Muốn kiểm tra được thì `Select` phải mang thêm một tham số kiểu thứ tư xuyên qua mọi method của nó, đắt hơn giá trị nó mang lại ở thời điểm này.
+
+## 12.9. `group_children`: gấp một-nhiều thành cây
+
+Một join một-nhiều trả về cha lặp lại một lần cho mỗi con.
+`group_children` gấp nó lại, không cần query thứ hai cho mỗi cha.
+
+```rust
+let tree: Vec<(User, Vec<Order>)> = group_children(rows, |user| user.id);
+```
+
+Cha giữ nguyên thứ tự lần đầu xuất hiện, con giữ nguyên thứ tự đến.
+Trả `Vec` chứ không phải `HashMap` chính là vì thế: `ORDER BY` mà query đã bỏ công xin không được phép mất trong lúc gấp.
+
+Cha có `Vec` rỗng khi `LEFT JOIN` không khớp gì.
+
+Hàm này nhận kết quả đã fetch chứ không gắn vào `Db`, nên ai render rồi tự bind bằng driver của mình vẫn dùng được.
+
 ## Bước tiếp theo
 
 [Chương 13](./13-codegen.md) sinh entity từ một schema đã có.

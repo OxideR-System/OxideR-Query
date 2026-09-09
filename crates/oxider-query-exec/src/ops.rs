@@ -4,7 +4,7 @@
 //! a transaction) render, bind and run in the same way; only the executor
 //! differs. These helpers hold that logic once so the two handles stay thin.
 
-use crate::{Backend, Result};
+use crate::{Backend, Projection, Result};
 use oxider_query_core::Renderable;
 use sqlx::{Database, Executor, FromRow};
 
@@ -61,4 +61,61 @@ where
     let rendered = query.render_with(&DB::Dialect::default())?;
     let bound = DB::bind_as(sqlx::query_as::<DB, O>(&rendered.sql), &rendered.params);
     Ok(bound.fetch_optional(executor).await?)
+}
+
+/// Render, bind and run a query, reading each row by column position.
+///
+/// The rows come back raw and are decoded here rather than through sqlx's
+/// `query_as`, because that path goes via `FromRow`, which matches by name.
+pub(crate) async fn fetch_all_projected<'e, DB, E, O, Q>(executor: E, query: Q) -> Result<Vec<O>>
+where
+    DB: Backend,
+    E: Executor<'e, Database = DB>,
+    O: for<'r> Projection<'r, DB::Row>,
+    Q: Renderable,
+    for<'q> <DB as Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+{
+    let rendered = query.render_with(&DB::Dialect::default())?;
+    let bound = DB::bind(sqlx::query::<DB>(&rendered.sql), &rendered.params);
+    let rows = bound.fetch_all(executor).await?;
+    rows.iter()
+        .map(|row| O::from_row_at(row, 0).map_err(Into::into))
+        .collect()
+}
+
+/// Render, bind and run a query expected to return exactly one row, read by
+/// column position.
+pub(crate) async fn fetch_one_projected<'e, DB, E, O, Q>(executor: E, query: Q) -> Result<O>
+where
+    DB: Backend,
+    E: Executor<'e, Database = DB>,
+    O: for<'r> Projection<'r, DB::Row>,
+    Q: Renderable,
+    for<'q> <DB as Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+{
+    let rendered = query.render_with(&DB::Dialect::default())?;
+    let bound = DB::bind(sqlx::query::<DB>(&rendered.sql), &rendered.params);
+    let row = bound.fetch_one(executor).await?;
+    Ok(O::from_row_at(&row, 0)?)
+}
+
+/// Render, bind and run a query that may return zero or one row, read by column
+/// position.
+pub(crate) async fn fetch_optional_projected<'e, DB, E, O, Q>(
+    executor: E,
+    query: Q,
+) -> Result<Option<O>>
+where
+    DB: Backend,
+    E: Executor<'e, Database = DB>,
+    O: for<'r> Projection<'r, DB::Row>,
+    Q: Renderable,
+    for<'q> <DB as Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+{
+    let rendered = query.render_with(&DB::Dialect::default())?;
+    let bound = DB::bind(sqlx::query::<DB>(&rendered.sql), &rendered.params);
+    match bound.fetch_optional(executor).await? {
+        Some(row) => Ok(Some(O::from_row_at(&row, 0)?)),
+        None => Ok(None),
+    }
 }

@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P2 XONG (2026-09-09). Kế tiếp: P1.
+Status: ĐANG CHẠY. P1 và P2 XONG (2026-09-09). Kế tiếp: P3.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -32,7 +32,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 
 | # | Nội dung | Vì sao ở vị trí này | Công sức |
 |---|---|---|---|
-| P1 | `#[derive(Projection)]` + GroupBy transformer | khoảng trống lớn nhất; là thứ biến thư viện từ "sinh chuỗi SQL" thành "dùng được cho ứng dụng" | Lớn |
+| P1 | `#[derive(Projection)]` + GroupBy transformer | khoảng trống lớn nhất; là thứ biến thư viện từ "sinh chuỗi SQL" thành "dùng được cho ứng dụng" | **XONG** |
 | P2 | Backend MySQL cho `oxider-query-exec` | xoá bất đối xứng builder-3 / exec-2 mà README đang phải cảnh báo ngay đầu file | **XONG** |
 | P3 | `fetch_count` + kiểu kết quả phân trang | phân trang là nhu cầu phổ thông nhất chưa được phục vụ | Nhỏ |
 | P4 | Kiểu giá trị: decimal, uuid, json, array | không có bốn kiểu này thì nhiều schema Postgres thật không dùng được | Vừa |
@@ -60,7 +60,34 @@ Crate không tự đặt `time_zone` vì pool do sqlx dựng và `Db` không che
 Bắt được một bug có sẵn: macro `db_or_skip!` bind guard của mutex **bên trong nhánh `match`**, nên guard drop ngay tại đó và bộ test chưa bao giờ thực sự tuần tự hoá - đúng thứ commit `9c5ecf3` định sửa.
 Trên MySQL nó hiện ra thành `Table 'oxider.ox_users' doesn't exist` ở 2 test. Đã sửa thành macro dạng statement, bind guard trong scope của test body, áp cho cả suite Postgres.
 
-## P1. Projection và GroupBy transformer
+## P1. Projection và GroupBy transformer - XONG
+
+Hai quyết định đã ghi ở dưới bị đảo lại trong lúc làm, vì có bằng chứng mới. Ghi lại cả hai để lần sau không bàn lại:
+
+**1. `Projection` nằm ở `oxider-query-exec`, không phải core.**
+Đọc hàng theo vị trí cần một trait mang `from_row_at(row, offset)`, mà `row` là `sqlx::Row`.
+Core không phụ thuộc sqlx và không nên phụ thuộc, nên core chưa bao giờ là chỗ đặt được.
+Tách `ARITY` sang core còn `from_row_at` ở exec thì thành hai nửa của một trait ở hai crate, tốn hơn được.
+
+**2. `group_children` đi theo, cũng ở exec.**
+Nó không cần gì từ exec (thuần std), nhưng nó là phép gấp trên chính các `Projection` đó. Một tính năng, một crate.
+Lý do cũ - "facade chỉ có 10 dòng re-export, đừng bỏ logic vào" - vẫn đúng, chỉ là câu trả lời đổi từ core sang exec.
+
+**3. Không kiểm tra được select ↔ projection lúc biên dịch.**
+`Select` xoá projection thành `Vec<Node>` ngay khi dựng, nên không còn kiểu để đối chiếu.
+Muốn có thì phải luồn tham số kiểu thứ tư qua mọi method của `Select`, đắt hơn giá trị nó mang lại.
+Lệch nhau hiện ra thành lỗi chỉ số cột từ hàng đầu tiên; có test ghim đúng hành vi đó.
+
+Cái ĐƯỢC kiểm tra lúc biên dịch: bề rộng của span cộng dồn qua tuple và `Option`, nên `(User, Option<Order>)` biết cắt hàng phẳng ở đâu mà không đọc hàng.
+
+File: `exec/src/projection.rs`, `exec/src/transform.rs`, `macros/src/projection.rs`.
+`oxider-query-macros` tách thành `lib.rs` / `attributes.rs` / `entity.rs` / `projection.rs` vì đã vượt 200 dòng.
+`Db` và `Tx` thêm `fetch_all_projected` / `fetch_one_projected` / `fetch_optional_projected`; `fetch_all` cũ giữ nguyên đường `FromRow` theo tên.
+Không thể làm blanket `impl FromRow for P: Projection` - trait ngoại + kiểu generic, vướng orphan rule - nên phải là method riêng chứ không phải cùng một `fetch_all`.
+
+8 test E2E trên SQLite + 4 unit test cho phép gấp.
+
+## Ghi chú thiết kế P1 (giữ nguyên bản gốc)
 
 Hiện chỉ có tuple projection arity 2..=12.
 

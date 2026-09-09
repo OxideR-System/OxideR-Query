@@ -1,6 +1,6 @@
 //! The [`Tx`] handle: a transaction exposing the same query methods as [`Db`].
 
-use crate::{ops, Backend, Result};
+use crate::{ops, Backend, Projection, Result};
 use oxider_query_core::Renderable;
 use sqlx::{Database, FromRow, Transaction};
 
@@ -71,5 +71,35 @@ where
         Q: Renderable,
     {
         ops::fetch_optional(&mut *self.tx, query).await
+    }
+
+    /// Run a query and read every row by column position into `O`.
+    ///
+    /// The positional counterpart of [`fetch_all`](Tx::fetch_all); see
+    /// [`Projection`].
+    pub async fn fetch_all_projected<O, Q>(&mut self, query: Q) -> Result<Vec<O>>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+    {
+        ops::fetch_all_projected(&mut *self.tx, query).await
+    }
+
+    /// Run a query expected to return exactly one row, read by column position.
+    pub async fn fetch_one_projected<O, Q>(&mut self, query: Q) -> Result<O>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+    {
+        ops::fetch_one_projected(&mut *self.tx, query).await
+    }
+
+    /// Run a query that may return zero or one row, read by column position.
+    pub async fn fetch_optional_projected<O, Q>(&mut self, query: Q) -> Result<Option<O>>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+    {
+        ops::fetch_optional_projected(&mut *self.tx, query).await
     }
 }

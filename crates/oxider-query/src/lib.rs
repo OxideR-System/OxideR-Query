@@ -227,7 +227,7 @@
 //! crates depend only on `oxider-query`.
 
 pub use oxider_query_core::*;
-pub use oxider_query_macros::Entity;
+pub use oxider_query_macros::{Entity, Projection};
 
 /// Everything needed to write queries, in one import.
 ///
@@ -235,5 +235,5 @@ pub use oxider_query_macros::Entity;
 /// is why this exists rather than a handful of individual imports.
 pub mod prelude {
     pub use oxider_query_core::prelude::*;
-    pub use oxider_query_macros::Entity;
+    pub use oxider_query_macros::{Entity, Projection};
 }
