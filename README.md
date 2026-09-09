@@ -2,7 +2,7 @@
 
 Type-safe, multi-dialect SQL query builder for Rust, inspired by Java's [QueryDSL](https://github.com/querydsl/querydsl) but pushing type-safety further than a JVM can.
 
-> **The builder targets PostgreSQL, MySQL and SQLite. The optional execution layer supports PostgreSQL and SQLite; schema codegen is SQLite only.** On MySQL you build and render here, then bind the `(sql, params)` pair with your own driver rather than using the `Db` handle. [Chapter 12](./docs/12-execution.md) shows what the handle does, so you can judge how much that costs you.
+> **The builder and the optional execution layer both target PostgreSQL, MySQL and SQLite. Schema codegen is SQLite only.** [Chapter 12](./docs/12-execution.md) covers the execution handle; [chapter 13](./docs/13-codegen.md) covers codegen.
 
 > Status: 0.1.0, in active development. The full SELECT surface (every join, aliasing, `DISTINCT ON`, null ordering, row locking, set operations, CTEs including recursive ones, window functions, correlated subqueries), full DML (multi-row insert, insert-select, upsert, `RETURNING`, update-from, delete-using), and roughly 200 operators rendered for all three dialects. Pre-1.0, so the API tracks latest stable Rust and may change.
 
@@ -170,7 +170,7 @@ Chained `AND`/`OR` flatten into one many-operand node, so a thousand dynamic fil
 
 ## Running queries
 
-The core builder is execution-agnostic. The optional `oxider-query-exec` crate provides one `Db` handle wrapping a sqlx pool: it renders with the backend's own dialect, binds the parameters and runs the statement, mapping rows into any `sqlx::FromRow` type.
+The core builder is execution-agnostic. The optional `oxider-query-exec` crate provides one `Db` handle wrapping a sqlx pool: it renders with the backend's own dialect, binds the parameters and runs the statement, mapping rows into any `sqlx::FromRow` type. One backend per feature: `sqlite`, `postgres`, `mysql`.
 
 ```rust
 #[derive(Entity, sqlx::FromRow)]
@@ -207,7 +207,7 @@ There is no `.to_sql(&Sqlite)` at the call site: the handle picks the dialect, s
 |-------|------|
 | `oxider-query-core` | AST, typed expression layer, builders, `Dialect` trait, renderer. No DB, no macros. |
 | `oxider-query-macros` | `#[derive(Entity)]` generating the query metamodel. |
-| `oxider-query-exec` | Optional async execution over sqlx (PostgreSQL and SQLite). Binds params, maps rows. |
+| `oxider-query-exec` | Optional async execution over sqlx (PostgreSQL, MySQL and SQLite). Binds params, maps rows. |
 | `oxider-query-codegen` | Optional schema introspection: generate `Entity` structs from an existing database (SQLite today). |
 | `oxider-query` | Facade crate that downstream users depend on. |
 
@@ -233,6 +233,7 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 | `crates/oxider-query/tests/` | SELECT, joins, expressions, aggregates, windows, subqueries, set operations and CTEs, DML, entity mapping, and every example printed in the guide |
 | `crates/oxider-query-exec/tests/sqlite_end_to_end.rs` | the hard cases against a real database: escaped `LIKE` actually matching, emulated null ordering actually ordering, emulated `FILTER` counting the same rows as the native one, recursive CTEs, upserts, `RETURNING`, transaction rollback |
 | `crates/oxider-query-exec/tests/postgres_end_to_end.rs` | the strict backend: temporal parameters typed as the columns actually are, `DISTINCT ON` and native `FILTER` on a server that has them, named parameters, rollback. Skips unless `OXIDER_POSTGRES_URL` is set; `make pg-up test-pg pg-down` |
+| `crates/oxider-query-exec/tests/mysql_end_to_end.rs` | the dialect that emulates the most: null ordering and aggregate `FILTER` rewritten and still returning the right rows, `ON DUPLICATE KEY UPDATE`, an instant landing in a `DATETIME` unshifted by the session zone, and `RETURNING` and `FULL JOIN` refused before a connection is touched. Skips unless `OXIDER_MYSQL_URL` is set; `make mysql-up test-mysql mysql-down` |
 | `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names |
 | `crates/oxider-query/tests/named_parameter_scenarios.rs` | named parameters: rebinding, an unbound name refused, resolution inside a correlated subquery |
 | `crates/oxider-query/tests/dynamic_query_depth_scenarios.rs` | flattened `AND`/`OR` chains, and the depth limit refusing rather than overflowing |
@@ -248,6 +249,7 @@ make test                     # tests only
 make bench                    # render-throughput microbench (criterion)
 make release VERSION=0.1.2    # bump, verify, tag, push, publish a GitHub release
 make pg-up test-pg pg-down    # PostgreSQL end-to-end against a throwaway server
+make mysql-up test-mysql mysql-down   # the same, for MySQL
 ```
 
 The underlying commands, for anyone who would rather not use `make`:
@@ -262,9 +264,9 @@ cargo bench -p oxider-query
 
 ## Roadmap
 
-See `plans/260905-2058-querydsl-full-port/plan.md`.
+See `plans/260909-1018-rust-first-roadmap/plan.md`. QueryDSL is the architectural reference, not the finish line: anything on its feature list that no Rust user asks for is off the roadmap rather than left pending.
 
-Remaining: the MySQL execution backend, PostgreSQL and MySQL codegen backends, `#[derive(Projection)]`, and a GroupBy transformer.
+Next up: `#[derive(Projection)]` and a GroupBy transformer, `fetch_count` and paged results, and `rust_decimal`/`uuid`/`json` parameter types.
 
 ## License
 

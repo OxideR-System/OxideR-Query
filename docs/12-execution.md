@@ -159,16 +159,33 @@ pub trait Backend: Database {
 
 Implement nó cho một `sqlx::Database` là đủ để `Db` và `Tx` chạy trên backend đó, không phải sửa gì trong hai kiểu ấy.
 
-Hôm nay có SQLite (feature mặc định `sqlite`) và PostgreSQL (feature `postgres`).
-MySQL lắp vào theo đúng đường này.
+Hôm nay có SQLite (feature mặc định `sqlite`), PostgreSQL (feature `postgres`) và MySQL (feature `mysql`).
 
-Backend PostgreSQL dài khoảng 60 dòng, gần hết là bảng `match` trên `Value`, đúng như trait này hứa hẹn.
-Bộ test end-to-end của nó tự bỏ qua khi biến môi trường `OXIDER_POSTGRES_URL` chưa được đặt, nên `cargo test` mặc định không cần server:
+Mỗi backend dài khoảng 60 dòng, gần hết là bảng `match` trên `Value`, đúng như trait này hứa hẹn.
+Bộ test end-to-end của chúng tự bỏ qua khi biến môi trường tương ứng chưa được đặt, nên `cargo test` mặc định không cần server:
 
 ```bash
 make pg-up      # dựng một PostgreSQL tạm bằng Docker
 make test-pg    # chạy bộ test end-to-end
 make pg-down    # xóa nó đi
+
+make mysql-up test-mysql mysql-down   # y hệt, cho MySQL
+```
+
+## 12.7. MySQL và mốc thời gian có múi giờ
+
+MySQL không có kiểu datetime mang múi giờ.
+`DATETIME` là đồng hồ treo tường không kèm zone, còn `TIMESTAMP` lưu theo UTC nhưng quy đổi cả lúc ghi lẫn lúc đọc theo `time_zone` của kết nối.
+
+Nên một `DateTime<Utc>` khi bind sẽ mất phần offset, chỉ còn **đồng hồ UTC** của nó.
+Ghi vào `DATETIME` thì đúng chính xác.
+Ghi vào `TIMESTAMP` thì chỉ đúng khi `time_zone` của kết nối là UTC, vì nếu không server sẽ đọc dãy số đó như giờ địa phương rồi dịch đi.
+
+Crate này không tự đặt `time_zone` cho bạn: pool do sqlx dựng và `Db` không chen vào lúc mở kết nối.
+Hoặc dùng `DATETIME` cho mốc thời gian, hoặc tự đặt zone cho session:
+
+```sql
+SET time_zone = '+00:00'
 ```
 
 ## Bước tiếp theo

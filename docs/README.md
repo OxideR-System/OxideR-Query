@@ -119,8 +119,8 @@ Thêm một dialect là override vài entry, không nhân bản logic.
 
 Phiên bản 0.1.0, đang phát triển tích cực.
 
-Đã có: toàn bộ bề mặt SELECT (projection, mọi loại join, alias, `DISTINCT ON`, thứ tự NULL, khóa dòng, set operation, CTE kể cả đệ quy, window function, subquery tương quan), DML đầy đủ (insert nhiều dòng, insert-select, upsert, `RETURNING`, update-from, delete-using), khoảng 200 toán tử render cho ba dialect, lớp thực thi cho PostgreSQL và SQLite, và codegen cho SQLite.
+Đã có: toàn bộ bề mặt SELECT (projection, mọi loại join, alias, `DISTINCT ON`, thứ tự NULL, khóa dòng, set operation, CTE kể cả đệ quy, window function, subquery tương quan), DML đầy đủ (insert nhiều dòng, insert-select, upsert, `RETURNING`, update-from, delete-using), khoảng 200 toán tử render cho ba dialect, lớp thực thi cho PostgreSQL, MySQL và SQLite, và codegen cho SQLite.
 
-Chưa có: backend thực thi cho MySQL, codegen cho PostgreSQL và MySQL, `#[derive(Projection)]`, GroupBy transformer.
+Chưa có: codegen cho PostgreSQL và MySQL, `#[derive(Projection)]`, GroupBy transformer.
 
 Pre-1.0 nên API bám theo latest stable Rust và có thể thay đổi.
