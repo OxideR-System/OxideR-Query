@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P1-P7 XONG (2026-09-09). Kế tiếp: P8.
+Status: ĐANG CHẠY. P1-P8 XONG (2026-09-09). Kế tiếp: P9.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -39,7 +39,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 | P5 | `WITHIN GROUP` + gỡ `RatioToReport` | trả nợ API: 3 variant công khai mà mọi dialect đều từ chối | **XONG** |
 | P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | **XONG** |
 | P7 | Codegen Postgres (+ PK/FK) | giá trị cao, công sức cũng cao nhất trong danh sách | **XONG** |
-| P8 | CI workflow | `make check` đã có, chỉ còn nối vào GitHub Actions | Rất nhỏ |
+| P8 | CI workflow | `make check` đã có, chỉ còn nối vào GitHub Actions | **XONG** |
 | P9 | Streaming + batch DML | chỉ cần khi có người dùng chạm trần hiệu năng | Vừa |
 
 Hoãn, chưa xếp phase: **tài liệu tiếng Anh**. Đã chốt dịch máy toàn bộ, nhưng chưa làm bây giờ. Chi tiết và guard bắt buộc giữ ở mục riêng bên dưới để khi mở lại không phải nghĩ lại.
@@ -232,6 +232,17 @@ Phạm vi thật: **chỉ Postgres**. MySQL 8 và SQLite đều không có order
 Biết trước điều này thì đừng kỳ vọng nhiều: giá trị chính của P5 là xoá 3 variant hứa suông, không phải tính năng mới.
 
 `RatioToReport` gỡ hẳn, không dialect nào có.
+
+## P8. CI workflow - XONG
+
+`.github/workflows/ci.yml` đã có sẵn từ trước với service Postgres. Việc còn thiếu là hệ quả của P2: **suite MySQL chưa bao giờ chạy trên CI**, vì không có service MySQL nên nó tự skip - mà skip trông y hệt pass.
+
+Đã thêm service `mysql:8` (nhiều retry hơn Postgres, vì MySQL trả lời ping trước khi xong setup lần đầu) và biến `OXIDER_MYSQL_URL`.
+
+Thêm một bước khẳng định các suite **thật sự đã chạy**: chạy lại ba test binary cần server với `--nocapture` và fail nếu thấy dòng "is not set, skipping".
+Không thừa: đúng cái lỗi im lặng này đã xảy ra hai lần trong dự án (guard của mutex drop sớm ở P2, `search_path` theo connection ở P7), và cả hai lần đều là "test xanh nhưng không kiểm tra gì".
+
+Không thêm action cache của bên thứ ba: đó là một quyết định về chuỗi cung ứng, tách riêng khi cần.
 
 ## P7. Codegen Postgres - XONG
 
