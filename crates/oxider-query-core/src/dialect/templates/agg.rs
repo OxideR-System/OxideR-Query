@@ -7,6 +7,10 @@
 //!
 //! `FILTER (WHERE ...)` is likewise applied by the renderer, which rewrites it
 //! into a `CASE` inside the aggregate on engines that lack the clause.
+//!
+//! Nor is the sort. An ordinary aggregate carries it inside the parentheses and
+//! an ordered-set aggregate carries it after them, and that difference follows
+//! from the operator, so the renderer decides it rather than the table.
 
 use crate::ast::operator::Operator;
 use crate::dialect::template::{
@@ -37,6 +41,11 @@ pub(crate) fn ansi(op: Operator) -> Option<Template> {
         Corr => t![L("CORR("), A(0), L(", "), A(1), L(")")],
         CovarPop => t![L("COVAR_POP("), A(0), L(", "), A(1), L(")")],
         CovarSamp => t![L("COVAR_SAMP("), A(0), L(", "), A(1), L(")")],
+        // Ordered-set aggregates. The template covers the call; the renderer
+        // appends `WITHIN GROUP (ORDER BY ...)` from the node's sort terms,
+        // which is the same split that keeps DISTINCT and FILTER out of here.
+        PercentileCont => t![L("PERCENTILE_CONT("), A(0), L(")")],
+        PercentileDisc => t![L("PERCENTILE_DISC("), A(0), L(")")],
 
         // Window and ranking functions.
         RowNumber => t![L("ROW_NUMBER()")],
@@ -50,12 +59,6 @@ pub(crate) fn ansi(op: Operator) -> Option<Template> {
         FirstValue => t![L("FIRST_VALUE("), A(0), L(")")],
         LastValue => t![L("LAST_VALUE("), A(0), L(")")],
         NthValue => t![L("NTH_VALUE("), A(0), L(", "), A(1), L(")")],
-        // `RATIO_TO_REPORT` is Oracle-only, and the percentile functions are
-        // ordered-set aggregates spelled `PERCENTILE_CONT(f) WITHIN GROUP
-        // (ORDER BY x)` rather than plain calls. Neither has a template until
-        // the builder can express the shape, so both are reported unsupported
-        // instead of rendering into SQL that would not parse.
-
         // Sequences. The name is an identifier rather than a bound parameter,
         // because engines take it as a name rather than a value - so it is
         // quoted as one, not spliced.

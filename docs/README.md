@@ -119,7 +119,7 @@ Thêm một dialect là override vài entry, không nhân bản logic.
 
 Phiên bản 0.1.0, đang phát triển tích cực.
 
-Đã có: toàn bộ bề mặt SELECT (projection, mọi loại join, alias, `DISTINCT ON`, thứ tự NULL, khóa dòng, set operation, CTE kể cả đệ quy, window function, subquery tương quan), DML đầy đủ (insert nhiều dòng, insert-select, upsert, `RETURNING`, update-from, delete-using), khoảng 200 toán tử render cho ba dialect, lớp thực thi cho PostgreSQL, MySQL và SQLite, projection theo vị trí kèm `group_children`, và decimal, UUID và JSON sau feature flag, và codegen cho SQLite.
+Đã có: toàn bộ bề mặt SELECT (projection, mọi loại join, alias, `DISTINCT ON`, thứ tự NULL, khóa dòng, set operation, CTE kể cả đệ quy, window function, subquery tương quan), DML đầy đủ (insert nhiều dòng, insert-select, upsert, `RETURNING`, update-from, delete-using), khoảng 200 toán tử render cho ba dialect, lớp thực thi cho PostgreSQL, MySQL và SQLite, projection theo vị trí kèm `group_children`, đếm và phân trang, decimal, UUID và JSON sau feature flag, percentile `WITHIN GROUP` trên PostgreSQL, và codegen cho SQLite.
 
 Chưa có: codegen cho PostgreSQL và MySQL.
 

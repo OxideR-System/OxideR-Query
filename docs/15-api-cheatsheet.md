@@ -118,6 +118,10 @@ Khác: `date`
 | `x.variance()`, `x.var_pop()` | `f64` |
 | `bool_and(x)`, `bool_or(x)` | `bool` |
 | `group_concat(x, sep)` | `String` |
+| `percentile_cont(f).within_group(x)` | `f64` |
+| `percentile_disc(f).within_group(x)` | `T` |
+
+Hai percentile chỉ chạy trên PostgreSQL, và `within_group` là bắt buộc - không gọi thì không có `Aggregate` để đặt vào query. Thêm `within_group_desc` để sắp giảm dần.
 
 Bổ nghĩa cho aggregate: `.distinct()`, `.filter_where(pred)`, `.order_by(term)`, `.alias(name)`, `.over(window)`, `.over_named(name)`.
 

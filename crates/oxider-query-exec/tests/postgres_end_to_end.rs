@@ -418,3 +418,96 @@ async fn decimals_uuids_and_json_bind_as_the_native_types() {
         .await
         .unwrap();
 }
+
+/// The ordered-set aggregates, against the one engine that has them.
+///
+/// Rendering tests already pin the SQL text. What they cannot show is that
+/// PostgreSQL parses `WITHIN GROUP` where this puts it, or that the two
+/// percentiles differ the way their names say: over four ages, the continuous
+/// one interpolates a value that is in no row, and the discrete one returns a
+/// value that is.
+#[tokio::test]
+async fn the_two_percentiles_interpolate_and_do_not() {
+    db_or_skip!(db);
+    for (id, age) in [(1, 10), (2, 20), (3, 30), (4, 40)] {
+        add_user(&db, id, "u", age).await.unwrap();
+    }
+
+    let interpolated: Vec<One<f64>> = db
+        .fetch_all(
+            User::query().select(percentile_cont(0.5).within_group(User::age).alias("value")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        interpolated[0].value, 25.0,
+        "halfway between the two middle ages, which no row holds"
+    );
+
+    let taken: Vec<One<i64>> = db
+        .fetch_all(
+            User::query().select(percentile_disc(0.5).within_group(User::age).alias("value")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        taken[0].value, 20,
+        "the first age at or past the halfway mark, exactly as stored"
+    );
+
+    // Sorting the group the other way reaches the other side of the middle.
+    let descending: Vec<One<i64>> = db
+        .fetch_all(
+            User::query().select(
+                percentile_disc(0.5)
+                    .within_group_desc(User::age)
+                    .alias("value"),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(descending[0].value, 30);
+}
+
+/// A percentile per group, with the sort inside the aggregate and a separate
+/// sort outside it. The two ORDER BY clauses mean different things and the
+/// engine has to read them as such.
+#[tokio::test]
+async fn a_percentile_per_group_keeps_its_sort_separate_from_the_querys() {
+    db_or_skip!(db);
+    for (id, name, age) in [(1, "a", 10), (2, "a", 30), (3, "b", 50), (4, "b", 70)] {
+        add_user(&db, id, name, age).await.unwrap();
+    }
+
+    #[derive(sqlx::FromRow, Debug, PartialEq)]
+    struct Row {
+        name: String,
+        median: f64,
+    }
+
+    let rows: Vec<Row> = db
+        .fetch_all(
+            User::query()
+                .select((
+                    User::name,
+                    percentile_cont(0.5).within_group(User::age).alias("median"),
+                ))
+                .group_by(User::name)
+                .order_by(User::name.desc()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            Row {
+                name: "b".into(),
+                median: 60.0
+            },
+            Row {
+                name: "a".into(),
+                median: 20.0
+            },
+        ]
+    );
+}

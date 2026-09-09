@@ -204,6 +204,22 @@ impl Renderer<'_> {
             }
         }
 
+        // An ordered-set aggregate sorts the group rather than the argument, so
+        // its ORDER BY lands after the call instead of inside it. Nothing can
+        // stand in for the clause where it is missing - a median is a property
+        // of the whole sorted group, not of any row - so it is refused there.
+        let ordered_set = func.is_ordered_set();
+        if ordered_set {
+            if !self.dialect().caps().ordered_set_aggregates {
+                return self.unsupported("an ordered-set aggregate (WITHIN GROUP)");
+            }
+            if order_by.is_empty() {
+                return Err(RenderError::Invalid(
+                    "an ordered-set aggregate needs a WITHIN GROUP sort",
+                ));
+            }
+        }
+
         let Some(template) = self.dialect().template(func) else {
             return Err(RenderError::UnsupportedOperator {
                 dialect: self.dialect().name(),
@@ -222,7 +238,7 @@ impl Renderer<'_> {
                     self.expr(arg)?;
                     // An ordered aggregate puts its ORDER BY inside the call,
                     // right after the aggregated expression.
-                    if index == 0 && !order_by.is_empty() {
+                    if index == 0 && !ordered_set && !order_by.is_empty() {
                         self.push(" ORDER BY ");
                         self.order_terms(order_by)?;
                     }
@@ -250,6 +266,12 @@ impl Renderer<'_> {
                     }
                 }
             }
+        }
+
+        if ordered_set {
+            self.push(" WITHIN GROUP (ORDER BY ");
+            self.order_terms(order_by)?;
+            self.push(")");
         }
 
         if let Some(predicate) = filter {

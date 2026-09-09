@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P1, P2, P3, P4 XONG (2026-09-09). Kế tiếp: P5.
+Status: ĐANG CHẠY. P1-P5 XONG (2026-09-09). Kế tiếp: P6.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -19,7 +19,7 @@ QueryDSL vẫn là nguồn tham chiếu kiến trúc (Operator + Template + prec
 |---|---|
 | Họ `REGR_*` (9 hàm) | thống kê hồi quy trong SQL, gần như không ai gọi từ tầng ứng dụng; cần thì `raw` |
 | `LISTAGG` | cách viết của Oracle/DB2; `GROUP_CONCAT`/`STRING_AGG` đã phủ 3 dialect |
-| `RATIO_TO_REPORT` | Oracle-only, không dialect nào hỗ trợ. **Gỡ variant khỏi enum** |
+| `RATIO_TO_REPORT` | Oracle-only, không dialect nào hỗ trợ. **Đã gỡ variant khỏi enum** (P5) |
 | `MERGE` | Oracle/SQL Server; đã bỏ từ trước |
 | DDL (`CreateTable`, `DropTable`, `ForeignKeyBuilder`) | migration là việc của sqlx-migrate/refinery, không phải query builder |
 | 12 dialect còn lại (Oracle, DB2, SQL Server, DB2, Firebird...) | mở lại chỉ khi có người dùng thật yêu cầu; kiến trúc template khiến chi phí thêm sau này vẫn thấp |
@@ -36,7 +36,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 | P2 | Backend MySQL cho `oxider-query-exec` | xoá bất đối xứng builder-3 / exec-2 mà README đang phải cảnh báo ngay đầu file | **XONG** |
 | P3 | `fetch_count` + kiểu kết quả phân trang | phân trang là nhu cầu phổ thông nhất chưa được phục vụ | **XONG** |
 | P4 | Kiểu giá trị: decimal, uuid, json, array | không có bốn kiểu này thì nhiều schema Postgres thật không dùng được | **XONG** trừ array |
-| P5 | `WITHIN GROUP` + gỡ `RatioToReport` | trả nợ API: 3 variant công khai mà mọi dialect đều từ chối | Nhỏ |
+| P5 | `WITHIN GROUP` + gỡ `RatioToReport` | trả nợ API: 3 variant công khai mà mọi dialect đều từ chối | **XONG** |
 | P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | Nhỏ |
 | P7 | Codegen Postgres (+ PK/FK) | giá trị cao, công sức cũng cao nhất trong danh sách | Lớn |
 | P8 | CI workflow | `make check` đã có, chỉ còn nối vào GitHub Actions | Rất nhỏ |
@@ -206,7 +206,24 @@ Không đặt cái nào vào feature mặc định: `chrono` đang bật sẵn, 
 
 Array Postgres cần thêm toán tử (`= ANY`, `@>`, `&&`) chứ không chỉ kiểu, nên tách thành hạng mục con làm sau decimal/uuid/json.
 
-## P5. `WITHIN GROUP`
+## P5. `WITHIN GROUP` - XONG
+
+Ba variant hứa suông nay còn hai variant chạy được và một variant bị gỡ.
+`RatioToReport` xoá khỏi enum: Oracle-only, không dialect nào có.
+`PercentileCont`/`PercentileDisc` chuyển từ `Family::Window` sang `Family::Aggregate` - chúng là ordered-set aggregate, nên hợp lệ trong `HAVING` và nhận được `FILTER`, đúng như bản chất.
+
+Không thêm cờ nào lên node. Hình dạng `WITHIN GROUP` suy ra từ chính operator, nên có `Operator::is_ordered_set()` và renderer đọc từ đó; một cờ trên node là một chỗ nữa để hai nguồn sự thật nói khác nhau.
+
+API: `percentile_cont(f)` trả về builder chứ **không** trả về `Aggregate`.
+Lý do là `WITHIN GROUP` bắt buộc trong mọi engine, nên bản viết dở phải không biên dịch được, thay vì render ra SQL không parse.
+`within_group` nhận thẳng biểu thức chứ không nhận `Order<S>`, vì `Order<S>` xoá mất `T` mà `percentile_disc` cần giữ để trả về đúng kiểu của cột.
+Chiều giảm dần thành method thứ hai `within_group_desc`; với percentile rời rạc nó không phải lúc nào cũng bằng `1 - f` tăng dần nên không thể bỏ.
+
+`Caps::ordered_set_aggregates` là mục đầu tiên trong Caps **không có đường giả lập nào**, và ghi rõ lý do ngay tại chỗ khai báo: trung vị là tính chất của cả nhóm đã sắp, không biểu thức trên một hàng nào dựng lại được.
+
+Đúng như dự đoán khi lập kế hoạch: phạm vi thật chỉ PostgreSQL. Test E2E trên Postgres thật chứng minh phần mà render không chứng minh được - trên các tuổi 10/20/30/40 thì `cont` cho 25.0 (không hàng nào có) còn `disc` cho 20 (có thật trong nhóm).
+
+## Ghi chú thiết kế P5 (giữ nguyên bản viết trước khi làm)
 
 `Aggregate` đã mang sẵn `order_by` (`typed/aggregate.rs:24`), và render tập trung ở một hàm `Renderer::aggregate` (`render/expr.rs:60`).
 Việc cần làm: một cờ trên aggregate cho biết `order_by` render thành `WITHIN GROUP (ORDER BY ...)` ngoài ngoặc thay vì trong ngoặc, một `Caps` mới, và template cho `PERCENTILE_CONT`/`PERCENTILE_DISC`.

@@ -38,10 +38,10 @@ pub use render::{Bindings, RenderError, RenderResult, Renderable, Rendered, MAX_
 pub use source::{Cons, Nil};
 pub use typed::{
     case_when, coalesce, col, count_all, curr_val, current_date, current_time, current_timestamp,
-    greatest, least, next_val, null, nullif, param, raw, val, AggOps, Aggregate, Aliased, AnyExpr,
-    BoolOps, Column, CompareOps, Entity, Expr, ExprExt, Framed, IntoExpr, MathOps, NoFrame,
-    NumericAggOps, Only, Order, OrderOps, OrderedAggOps, Predicate, SelectionIn, Table,
-    TemporalOps, TextOps, Window,
+    greatest, least, next_val, null, nullif, param, percentile_cont, percentile_disc, raw, val,
+    AggOps, Aggregate, Aliased, AnyExpr, BoolOps, Column, CompareOps, Entity, Expr, ExprExt,
+    Framed, IntoExpr, MathOps, NoFrame, NumericAggOps, Only, Order, OrderOps, OrderedAggOps,
+    Predicate, SelectionIn, Table, TemporalOps, TextOps, Window,
 };
 pub use value::{formats, Numeric, Orderable, SqlType, Temporal, ToSqlValue, Value};
 
@@ -83,10 +83,10 @@ pub mod prelude {
         bool_and, bool_or, case_when, coalesce, col, count_all, cume_dist, curr_val, current_date,
         current_time, current_timestamp, dense_rank, first_value, greatest, group_concat, lag,
         last_value, lead, least, next_val, nth_value, ntile, null, nullif, param, percent_rank,
-        random, rank, raw, round_to, row_number, star, star_of, val, AggOps, Aggregate, Aliased,
-        AnyExpr, BoolOps, Column, CompareOps, Entity, Expr, ExprExt, Framed, IntoExpr, MathOps,
-        NoFrame, NumericAggOps, Only, OrderOps, OrderedAggOps, Predicate, SelectionIn, TemporalOps,
-        TextOps, Window,
+        percentile_cont, percentile_disc, random, rank, raw, round_to, row_number, star, star_of,
+        val, AggOps, Aggregate, Aliased, AnyExpr, BoolOps, Column, CompareOps, Entity, Expr,
+        ExprExt, Framed, IntoExpr, MathOps, NoFrame, NumericAggOps, Only, OrderOps, OrderedAggOps,
+        Predicate, SelectionIn, TemporalOps, TextOps, Window,
     };
     #[cfg(feature = "chrono")]
     pub use crate::typed::{now, today};

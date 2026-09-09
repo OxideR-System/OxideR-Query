@@ -189,3 +189,112 @@ fn grouping_accepts_several_keys_at_once() {
         r#"SELECT "orders"."user_id", "orders"."status", COUNT(*) FROM "orders" GROUP BY "orders"."user_id", "orders"."status""#,
     );
 }
+
+// -- Ordered-set aggregates -------------------------------------------------
+//
+// A percentile sorts the group rather than the argument, so its ORDER BY sits
+// after the call rather than inside it. PostgreSQL is the only built-in dialect
+// with the clause, and the tests below pin both halves of that: what it renders
+// where it exists, and that it is refused rather than approximated where it
+// does not.
+
+#[test]
+fn a_continuous_percentile_sorts_the_group_after_the_call() {
+    let query = Order::query()
+        .select(
+            percentile_cont(0.5)
+                .within_group(Order::total)
+                .alias("median"),
+        )
+        .group_by(Order::user_id);
+    assert_sql(
+        query,
+        &Postgres,
+        r#"SELECT PERCENTILE_CONT($1) WITHIN GROUP (ORDER BY "orders"."total" ASC) AS "median" FROM "orders" GROUP BY "orders"."user_id""#,
+        &[real(0.5)],
+    );
+}
+
+/// The fraction is bound, not spliced. It reaches SQL as a parameter like any
+/// other number, so the same prepared statement serves every percentile.
+#[test]
+fn the_fraction_binds_as_a_parameter() {
+    let query = Department::query().select(percentile_disc(0.9).within_group(Department::budget));
+    assert_sql(
+        query,
+        &Postgres,
+        r#"SELECT PERCENTILE_DISC($1) WITHIN GROUP (ORDER BY "departments"."budget" ASC) FROM "departments""#,
+        &[real(0.9)],
+    );
+}
+
+#[test]
+fn a_percentile_can_sort_the_group_descending() {
+    let query = Order::query().select(percentile_cont(0.1).within_group_desc(Order::total));
+    assert_sql(
+        query,
+        &Postgres,
+        r#"SELECT PERCENTILE_CONT($1) WITHIN GROUP (ORDER BY "orders"."total" DESC) FROM "orders""#,
+        &[real(0.1)],
+    );
+}
+
+/// `WITHIN GROUP` comes before `FILTER`, which is the order PostgreSQL parses
+/// and the reverse of how the two builder methods read.
+#[test]
+fn a_filtered_percentile_puts_within_group_first() {
+    let query = Order::query().select(
+        percentile_cont(0.5)
+            .within_group(Order::total)
+            .filter_where(Order::status.eq("paid")),
+    );
+    assert_sql(
+        query,
+        &Postgres,
+        r#"SELECT PERCENTILE_CONT($1) WITHIN GROUP (ORDER BY "orders"."total" ASC) FILTER (WHERE "orders"."status" = $2) FROM "orders""#,
+        &[real(0.5), text("paid")],
+    );
+}
+
+/// A percentile is an aggregate, so it is legal in HAVING like any other.
+#[test]
+fn a_percentile_is_an_aggregate_in_having() {
+    let query = Order::query()
+        .select(Order::user_id)
+        .group_by(Order::user_id)
+        .having(percentile_cont(0.5).within_group(Order::total).gt(50.0));
+    assert_sql(
+        query,
+        &Postgres,
+        r#"SELECT "orders"."user_id" FROM "orders" GROUP BY "orders"."user_id" HAVING PERCENTILE_CONT($1) WITHIN GROUP (ORDER BY "orders"."total" ASC) > $2"#,
+        &[real(0.5), real(50.0)],
+    );
+}
+
+/// Neither engine has an ordered-set aggregate, and neither has anything to
+/// stand in for one: a median is a property of the sorted group, so no
+/// expression over a single row reproduces it. Both refuse while rendering.
+#[test]
+fn the_engines_without_within_group_refuse_rather_than_approximate() {
+    let query = Order::query().select(percentile_cont(0.5).within_group(Order::total));
+    assert_rejected(query.clone(), &MySql, "WITHIN GROUP");
+    assert_rejected(query, &Sqlite, "WITHIN GROUP");
+}
+
+/// A discrete percentile returns a value the group actually holds, so it keeps
+/// the sorted column's type rather than widening to a float. This compiles only
+/// because `placed_on` is a date going in and a date coming out.
+#[test]
+fn a_discrete_percentile_keeps_the_sorted_columns_type() {
+    let query = Order::query().select(
+        percentile_disc(0.5)
+            .within_group(Order::placed_on)
+            .alias("median_day"),
+    );
+    assert_sql(
+        query,
+        &Postgres,
+        r#"SELECT PERCENTILE_DISC($1) WITHIN GROUP (ORDER BY "orders"."placed_on" ASC) AS "median_day" FROM "orders""#,
+        &[real(0.5)],
+    );
+}
