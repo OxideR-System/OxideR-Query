@@ -85,4 +85,11 @@ jobs:
       # Vulnerabilities fail the job; unmaintained-crate warnings do not, so a
       # transitive dependency going quiet does not block unrelated work.
       - name: Audit dependencies
-        run: cargo audit
+        run: |
+          set -euo pipefail
+          cargo audit
+          # cargo-audit passes over an ignored advisory in silence, so the log
+          # would read the same whether an exception exists or not. Print them:
+          # an exception nobody sees is an exception nobody revisits.
+          echo "Advisories ignored, with the reasoning in .cargo/audit.toml:"
+          grep -o 'RUSTSEC-[0-9-]*' .cargo/audit.toml | sort -u

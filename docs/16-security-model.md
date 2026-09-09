@@ -106,7 +106,29 @@ Dù vậy, codegen là công cụ lúc build: chỉ chĩa nó vào database bạ
 `db.transaction(async |tx| { ... })` commit khi closure trả `Ok` và rollback khi trả `Err`.
 Nếu rollback thất bại, lỗi của closure vẫn là lỗi được trả về, vì đó mới là nguyên nhân.
 
-## 16.9. Bảng tổng kết
+## 16.9. Advisory của dependency
+
+CI chạy `cargo audit` như một job riêng, và lỗ hổng làm job đó fail.
+
+Có đúng một advisory đang được bỏ qua, khai trong `.cargo/audit.toml` kèm lý do đầy đủ:
+
+**RUSTSEC-2023-0071** - Marvin Attack trên crate `rsa` 0.9.10, khôi phục khoá riêng qua timing sidechannel. Mức trung bình, và **không có bản vá để nâng lên**.
+
+Đã kiểm chứng đường tới được, không phải suy đoán:
+
+- `rsa` vào workspace này qua đúng một cạnh: `sqlx-mysql`, và nó khai `rsa` là dependency **bắt buộc** chứ không optional. Cách duy nhất để gỡ là bỏ luôn MySQL.
+- `sqlx-mysql` gọi `rsa` ở đúng một file (`src/connection/auth.rs`), đúng một hàm (`encrypt_rsa`). Hàm đó mã hoá mật khẩu bằng khoá **công khai** của server khi xác thực `sha256_password` / `caching_sha2_password`, và nó `return` trước khi chạm tới `rsa` nếu connection là TLS.
+- Marvin Attack nhắm vào thao tác **khoá riêng**: kẻ tấn công gửi ciphertext tự chọn rồi đo thời gian giải mã để khôi phục khoá. Khoá riêng trong luồng xác thực MySQL là của server, không phải của mã này. Không chỗ nào trong workspace giữ khoá riêng RSA, giải mã, hay ký.
+
+Nói cách khác advisory là thật, còn thao tác có lỗ hổng là thao tác workspace này không bao giờ thực hiện.
+
+Dùng TLS thì đường đó thậm chí không chạy tới `rsa`.
+
+Mục ignore phải gỡ ngay khi `rsa` có bản vá, và phải xem lại nếu `sqlx-mysql` bắt đầu ký hoặc giải mã.
+
+`cargo audit` 0.22 bỏ qua trong im lặng, nên bước CI in ra danh sách ID đang được bỏ qua: một ngoại lệ không ai nhìn thấy là một ngoại lệ không ai xem lại.
+
+## 16.10. Bảng tổng kết
 
 | Đầu vào | Đi đâu | Ai chịu trách nhiệm |
 |---|---|---|
