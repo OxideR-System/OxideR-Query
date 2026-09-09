@@ -31,7 +31,8 @@ REMOTE ?= origin
 CURRENT_VERSION = $(shell grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
 
 .PHONY: help fmt fmt-check lint test test-doc check bench audit package publish-dry \
-        docs-serve docs-build clean version release pg-up pg-down test-pg \n        mysql-up mysql-down test-mysql audit-or-warn
+        docs-serve docs-build clean version release audit-or-warn \
+        pg-up pg-down test-pg mysql-up mysql-down test-mysql test-db
 
 help: ## List the targets
 	@echo "OxideR-Query - available targets"
@@ -88,7 +89,39 @@ pg-down: ## Remove the throwaway PostgreSQL
 
 test-pg: ## Run the PostgreSQL end-to-end suite against a running server
 	OXIDER_POSTGRES_URL=$(PG_URL) $(CARGO) test -p oxider-query-exec \
-		--features postgres --test postgres_end_to_end
+		--all-features --test postgres_end_to_end
+
+# MySQL, the same three moves. The suite skips itself without the variable,
+# so nothing here is needed to run `make check`.
+MYSQL_CONTAINER ?= oxider-mysql
+MYSQL_PORT ?= 33069
+MYSQL_URL ?= mysql://root:oxider@localhost:$(MYSQL_PORT)/oxider
+
+mysql-up: ## Start a throwaway MySQL for the end-to-end suite
+	@docker run -d --name $(MYSQL_CONTAINER) \
+		-e MYSQL_ROOT_PASSWORD=oxider -e MYSQL_DATABASE=oxider \
+		-p $(MYSQL_PORT):3306 mysql:8 >/dev/null
+	@printf 'waiting for mysql'
+	@for i in $$(seq 1 60); do \
+		if docker exec $(MYSQL_CONTAINER) mysqladmin ping -uroot -poxider \
+			--silent >/dev/null 2>&1; then \
+			echo " ready on $(MYSQL_URL)"; exit 0; \
+		fi; \
+		printf '.'; sleep 1; \
+	done; \
+	echo " gave up"; exit 1
+
+mysql-down: ## Remove the throwaway MySQL
+	@docker rm -f $(MYSQL_CONTAINER) >/dev/null 2>&1 || true
+	@echo "removed $(MYSQL_CONTAINER)"
+
+test-mysql: ## Run the MySQL end-to-end suite against a running server
+	OXIDER_MYSQL_URL=$(MYSQL_URL) $(CARGO) test -p oxider-query-exec \
+		--all-features --test mysql_end_to_end
+
+test-db: ## Run every end-to-end suite: SQLite in-process, Postgres and MySQL live
+	OXIDER_POSTGRES_URL=$(PG_URL) OXIDER_MYSQL_URL=$(MYSQL_URL) \
+		$(CARGO) test -p oxider-query-exec --all-features --tests
 
 bench: ## Render-throughput microbench (criterion)
 	$(CARGO) bench -p oxider-query
