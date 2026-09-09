@@ -103,6 +103,30 @@ where
         ops::fetch_optional_projected(&mut *self.tx, query).await
     }
 
+    /// Run a query and hand each row to `f` as it arrives, without collecting.
+    ///
+    /// See [`Db::for_each_row`](crate::Db::for_each_row). Inside a transaction
+    /// the walk holds the connection for its whole length, so a long one keeps
+    /// the transaction open for just as long.
+    pub async fn for_each_row<O, Q, F>(&mut self, query: Q, f: F) -> Result<u64>
+    where
+        O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
+        Q: Renderable,
+        F: FnMut(O) -> Result<()>,
+    {
+        ops::for_each_row(&mut *self.tx, query, f).await
+    }
+
+    /// The same, reading each row by column position rather than by name.
+    pub async fn for_each_row_projected<O, Q, F>(&mut self, query: Q, f: F) -> Result<u64>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+        F: FnMut(O) -> Result<()>,
+    {
+        ops::for_each_row_projected(&mut *self.tx, query, f).await
+    }
+
     /// Count the rows a query returns, ignoring any `LIMIT` and `OFFSET` on it.
     ///
     /// Wraps the query rather than swapping its projection for `COUNT(*)`, so

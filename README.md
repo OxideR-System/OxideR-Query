@@ -229,6 +229,22 @@ UUID on MySQL is the one that looks inconsistent and is not: MySQL has no UUID t
 SQLite has no exact decimal at all, so a `NUMERIC` column orders arithmetically but rounds wide values through `REAL`, while a `TEXT` column keeps every digit and compares lexicographically.
 Both halves are pinned by tests rather than glossed over; [chapter 12](./docs/12-execution.md) says which to pick.
 
+### Walking a result set without collecting it
+
+`fetch_all` builds a `Vec`. For an export, a migration, or a report over a whole table, that `Vec` is the problem.
+
+```rust
+let mut total = 0i64;
+let rows = db.for_each_row(Order::query(), |order: Order| {
+    total += order.amount;
+    Ok(())
+}).await?;
+```
+
+Each row goes to the closure as it arrives and is dropped after. Returns how many rows went past; an error from the closure stops the walk there and becomes the result, so giving up early costs nothing. `for_each_row_projected` is the positional form, and both exist on `Tx`.
+
+It is a fold rather than a `Stream` because a `Stream` would have to own the rendered SQL and borrow from it at once, which needs a self-referential type or a generator macro from another crate - neither worth it when the reason to stream is to avoid holding the data. Driving sqlx over `pool()` gets a real `Stream` for anyone who needs to compose one.
+
 ### Counting and paging
 
 ```rust
@@ -286,6 +302,7 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 | `crates/oxider-query/tests/` | SELECT, joins, expressions, aggregates, windows, subqueries, set operations and CTEs, DML, entity mapping, and every example printed in the guide |
 | `crates/oxider-query-exec/tests/sqlite_end_to_end.rs` | the hard cases against a real database: escaped `LIKE` actually matching, emulated null ordering actually ordering, emulated `FILTER` counting the same rows as the native one, recursive CTEs, upserts, `RETURNING`, transaction rollback |
 | `crates/oxider-query-exec/tests/postgres_end_to_end.rs` | the strict backend: temporal parameters typed as the columns actually are, `DISTINCT ON` and native `FILTER` on a server that has them, named parameters, rollback. Skips unless `OXIDER_POSTGRES_URL` is set; `make pg-up test-pg pg-down` |
+| `crates/oxider-query-exec/tests/streaming.rs` | the row-by-row walk: order kept, the count right, an error from the closure stopping it on the third row of a thousand, and a transaction walking its own uncommitted writes |
 | `crates/oxider-query-exec/tests/value_kinds_end_to_end.rs` | decimals, UUIDs and JSON against a database that has a type for none of them: a `NUMERIC` column ordering arithmetically, a `TEXT` column keeping every digit and ordering lexicographically, and both round trips |
 | `crates/oxider-query-exec/tests/projection_and_grouping.rs` | positional projections and the group-by fold: the `select` order deciding which field gets which column, a tuple splitting a flat join, `Option` going `None` only when its whole span is NULL, and the fold keeping the query's order |
 | `crates/oxider-query-exec/tests/mysql_end_to_end.rs` | the dialect that emulates the most: null ordering and aggregate `FILTER` rewritten and still returning the right rows, `ON DUPLICATE KEY UPDATE`, an instant landing in a `DATETIME` unshifted by the session zone, and `RETURNING` and `FULL JOIN` refused before a connection is touched. Skips unless `OXIDER_MYSQL_URL` is set; `make mysql-up test-mysql mysql-down` |

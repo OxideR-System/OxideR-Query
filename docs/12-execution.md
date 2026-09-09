@@ -355,6 +355,39 @@ Lưu tiền trong SQLite thì nên để đơn vị nhỏ nhất trong `INTEGER`
 Không có gì trong crate này làm việc chuyển đổi đó: decimal rời khỏi đây vẫn là các chữ số của nó.
 Cái chuyển đổi là cột.
 
+## 12.12. Duyệt kết quả mà không gom vào bộ nhớ
+
+`fetch_all` dựng một `Vec`. Với một bản xuất dữ liệu, một migration, hay một báo cáo quét cả bảng, cái `Vec` đó chính là vấn đề.
+
+`for_each_row` đưa từng dòng cho closure ngay khi nó về, không gom:
+
+```rust
+let mut total = 0i64;
+let rows = db.for_each_row(Order::query(), |order: Order| {
+    total += order.amount;
+    Ok(())
+}).await?;
+```
+
+Trả về số dòng đã đi qua. Closure trả `Err` thì dừng ngay tại đó và `Err` đó là kết quả - dùng để bỏ ngang mà không phải đọc nốt phần còn lại.
+Bản đọc theo vị trí là `for_each_row_projected`, giống quan hệ giữa `fetch_all` và `fetch_all_projected`.
+Cả hai đều có trên `Tx`; trong transaction thì vòng duyệt giữ connection bao lâu thì transaction mở bấy lâu.
+
+### Vì sao là fold chứ không phải `Stream`
+
+Một `Stream` phải vừa sở hữu câu SQL đã render vừa mượn từ chính nó, tức là một kiểu tự tham chiếu, hoặc một macro generator từ crate khác.
+Cả hai đều không đáng, khi lý do người ta cần streaming ngay từ đầu là để **không** giữ dữ liệu.
+Ai thật sự cần một `Stream` để ghép với `futures` thì lái sqlx trực tiếp qua [`Db::pool`].
+
+### Còn "batch DML" thì đã có sẵn
+
+Không có API mới cho nó, vì hai nửa của nhu cầu đó đều đã được phục vụ:
+
+- Nhiều dòng một câu lệnh: `Insert::values(...)` gọi nhiều lần, hoặc insert-select. Xem [chương 10](./10-dml.md).
+- Nhiều câu lệnh một lượt: `db.transaction(|tx| ...)`, một vòng lặp trên `tx.execute`.
+
+Thêm một `execute_many` chỉ là gói lại vòng lặp đó, không tiết kiệm được lượt đi về nào.
+
 ## Bước tiếp theo
 
 [Chương 13](./13-codegen.md) sinh entity từ một schema đã có.

@@ -11,6 +11,10 @@ readme = "../../README.md"
 [dependencies]
 oxider-query-core.workspace = true
 sqlx = { workspace = true }
+# Only for the `Stream` trait, to poll a row stream by hand in the
+# `for_each_row` fold. sqlx already pulls this in, and taking `futures-util`
+# instead would add a large crate for one call to `next`.
+futures-core = { version = "0.3", default-features = false }
 chrono = { version = "0.4", default-features = false, optional = true }
 # chrono support is enabled on each driver crate itself rather than through
 # `sqlx/chrono`, which fans the feature out to every backend: enabling it for

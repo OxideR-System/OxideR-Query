@@ -1010,6 +1010,7 @@ name = "oxider-query-exec"
 version = "0.2.2"
 dependencies = [
  "chrono",
+ "futures-core",
  "oxider-query",
  "oxider-query-core",
  "rust_decimal",

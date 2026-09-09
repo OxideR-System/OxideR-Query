@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P1-P8 XONG (2026-09-09). Kế tiếp: P9.
+Status: XONG P1-P9 (2026-09-09). Còn lại: tài liệu tiếng Anh (hoãn), array Postgres, codegen MySQL.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -40,7 +40,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 | P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | **XONG** |
 | P7 | Codegen Postgres (+ PK/FK) | giá trị cao, công sức cũng cao nhất trong danh sách | **XONG** |
 | P8 | CI workflow | `make check` đã có, chỉ còn nối vào GitHub Actions | **XONG** |
-| P9 | Streaming + batch DML | chỉ cần khi có người dùng chạm trần hiệu năng | Vừa |
+| P9 | Streaming + batch DML | chỉ cần khi có người dùng chạm trần hiệu năng | **XONG** |
 
 Hoãn, chưa xếp phase: **tài liệu tiếng Anh**. Đã chốt dịch máy toàn bộ, nhưng chưa làm bây giờ. Chi tiết và guard bắt buộc giữ ở mục riêng bên dưới để khi mở lại không phải nghĩ lại.
 
@@ -232,6 +232,24 @@ Phạm vi thật: **chỉ Postgres**. MySQL 8 và SQLite đều không có order
 Biết trước điều này thì đừng kỳ vọng nhiều: giá trị chính của P5 là xoá 3 variant hứa suông, không phải tính năng mới.
 
 `RatioToReport` gỡ hẳn, không dialect nào có.
+
+## P9. Streaming + batch DML - XONG
+
+**Streaming: `for_each_row` / `for_each_row_projected`, trên cả `Db` lẫn `Tx`.**
+Đưa từng dòng cho closure ngay khi về, không dựng `Vec`. Trả về số dòng; closure trả `Err` thì dừng tại đó.
+
+Là fold chứ không phải `Stream`, và đây là quyết định chứ không phải chưa làm tới:
+một `Stream` phải vừa sở hữu câu SQL đã render vừa mượn từ chính nó - kiểu tự tham chiếu, hoặc một macro generator từ crate khác (`async-stream`).
+Không đáng đánh đổi, khi lý do cần streaming ngay từ đầu là để **không** giữ dữ liệu. Ai cần `Stream` thật thì lái sqlx qua `Db::pool`.
+
+Dependency thêm vào: `futures-core` (chỉ để có trait `Stream` mà tự poll). sqlx đã kéo sẵn crate này, còn `futures-util` thì là một crate lớn cho đúng một lần gọi `next`.
+
+**Batch DML: không thêm API, vì đã có sẵn.**
+Nhiều dòng một câu lệnh là `Insert::values(...)` gọi nhiều lần hoặc insert-select, đã có từ lâu.
+Nhiều câu lệnh một lượt là `db.transaction(|tx| ...)` với một vòng lặp `tx.execute`.
+Một `execute_many` chỉ là gói lại đúng vòng lặp đó mà không tiết kiệm được lượt đi về nào - thêm API không có tác dụng.
+
+6 test: thứ tự giữ nguyên, số đếm đúng, fold không giữ dòng nào, dừng sớm ở dòng thứ 3 trong 1000, kết quả rỗng không gọi closure lần nào, và transaction duyệt được chính những dòng nó chưa commit.
 
 ## P8. CI workflow - XONG
 

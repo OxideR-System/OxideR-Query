@@ -165,6 +165,43 @@ where
         ops::fetch_optional_projected(&self.pool, query).await
     }
 
+    /// Run a query and hand each row to `f` as it arrives, without collecting.
+    ///
+    /// Use this where [`fetch_all`](Db::fetch_all) would build a `Vec` too
+    /// large to want in memory - an export, a migration, a report over the
+    /// whole table. Returns how many rows went past; an error from `f` stops
+    /// the walk and becomes the result.
+    ///
+    /// ```no_run
+    /// # use oxider_query_exec::{SqliteDb, Result};
+    /// # async fn demo(db: &SqliteDb, query: impl oxider_query_core::Renderable) -> Result<()> {
+    /// let mut total = 0i64;
+    /// let rows = db.for_each_row(query, |row: (i64,)| {
+    ///     total += row.0;
+    ///     Ok(())
+    /// }).await?;
+    /// # let _ = rows; Ok(())
+    /// # }
+    /// ```
+    pub async fn for_each_row<O, Q, F>(&self, query: Q, f: F) -> Result<u64>
+    where
+        O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
+        Q: Renderable,
+        F: FnMut(O) -> Result<()>,
+    {
+        ops::for_each_row(&self.pool, query, f).await
+    }
+
+    /// The same, reading each row by column position rather than by name.
+    pub async fn for_each_row_projected<O, Q, F>(&self, query: Q, f: F) -> Result<u64>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        Q: Renderable,
+        F: FnMut(O) -> Result<()>,
+    {
+        ops::for_each_row_projected(&self.pool, query, f).await
+    }
+
     /// Count the rows a query returns, ignoring any `LIMIT` and `OFFSET` on it.
     ///
     /// Wraps the query rather than swapping its projection for `COUNT(*)`, so
