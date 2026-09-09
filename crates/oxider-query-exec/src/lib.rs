@@ -51,6 +51,7 @@ use sqlx::Database;
 mod db;
 mod error;
 mod ops;
+mod page;
 mod projection;
 mod transform;
 mod tx;
@@ -64,6 +65,7 @@ mod sqlite;
 
 pub use db::Db;
 pub use error::{Error, Result};
+pub use page::Page;
 pub use projection::Projection;
 pub use transform::group_children;
 pub use tx::Tx;

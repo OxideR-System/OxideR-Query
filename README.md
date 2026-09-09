@@ -211,6 +211,18 @@ let tree: Vec<(User, Vec<Order>)> = group_children(rows, |user| user.id);
 
 Parents keep the order they first appeared in and children the order they arrived, so the query's `ORDER BY` survives the fold. What is *not* checked is whether the projection's width matches the query's own `select` list: that mismatch is a column error from the first row, not a compile error. [Chapter 12](./docs/12-execution.md) says why.
 
+### Counting and paging
+
+```rust
+let total: u64 = db.fetch_count(User::query().filter(User::age.ge(18))).await?;
+
+let page: Page<User> = db.fetch_page(User::query().order_by(User::id.asc()), 1, 20).await?;
+page.total_pages();
+page.has_next();
+```
+
+`count()` wraps the query - `SELECT COUNT(*) FROM (...) AS "oxider_count"` - rather than swapping its projection for `COUNT(*)`, so the answer is right for `DISTINCT`, `GROUP BY` and set operations, where the number of result rows is not the number of rows the FROM clause produces. `LIMIT` and `OFFSET` are dropped, since counting exists to say how many pages there are. So is `ORDER BY`, except under `DISTINCT ON`, which PostgreSQL requires it to match.
+
 `db.transaction(async |tx| { ... })` scopes a transaction to a closure, committing on `Ok` and rolling back on `Err`, so a commit is never forgotten. `db.begin()` is the manual form.
 
 `oxider_query_exec::Error` separates `Render` from `Database`, so a query the engine cannot express fails before a connection is touched.

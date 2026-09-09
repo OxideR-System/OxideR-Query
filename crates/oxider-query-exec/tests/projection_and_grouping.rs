@@ -309,3 +309,92 @@ async fn a_projection_wider_than_the_select_list_fails_on_the_column_it_lacks() 
         other => panic!("expected a database error, got {other:?}"),
     }
 }
+
+/// A count has to survive `DISTINCT`, which is exactly where swapping the
+/// projection for `COUNT(*)` instead of wrapping the query gives the wrong
+/// answer: three rows in, two distinct ages.
+#[tokio::test]
+async fn a_count_wrapping_a_distinct_query_counts_distinct_rows() {
+    let db = database().await;
+    add_user(&db, 1, "ada", 36).await.unwrap();
+    add_user(&db, 2, "grace", 36).await.unwrap();
+    add_user(&db, 3, "alan", 41).await.unwrap();
+
+    let distinct_ages = db
+        .fetch_count(User::query().distinct().select(User::age))
+        .await
+        .unwrap();
+    assert_eq!(distinct_ages, 2);
+
+    let everyone = db.fetch_count(User::query()).await.unwrap();
+    assert_eq!(everyone, 3);
+}
+
+/// The total must describe the whole query, not the page taken from it.
+#[tokio::test]
+async fn a_page_carries_the_total_of_the_unpaged_query() {
+    let db = database().await;
+    for id in 1..=7 {
+        add_user(&db, id, &format!("user{id}"), 20 + id)
+            .await
+            .unwrap();
+    }
+
+    let page = db
+        .fetch_page_projected::<User, _, _, _>(User::query().order_by(User::id.asc()), 1, 3)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        page.items.iter().map(|u| u.id).collect::<Vec<_>>(),
+        vec![4, 5, 6],
+        "the second page of three"
+    );
+    assert_eq!(page.total, 7, "the total is of the whole query");
+    assert_eq!(page.total_pages(), 3, "seven rows in pages of three");
+    assert!(page.has_next());
+    assert!(page.has_previous());
+}
+
+/// A page past the end still reports the total. This is what a windowed
+/// `COUNT(*) OVER ()` cannot do: with no rows to attach the count to, it
+/// returns nothing at all.
+#[tokio::test]
+async fn a_page_past_the_end_is_empty_but_still_knows_the_total() {
+    let db = database().await;
+    add_user(&db, 1, "ada", 36).await.unwrap();
+
+    let page = db
+        .fetch_page_projected::<User, _, _, _>(User::query(), 9, 10)
+        .await
+        .unwrap();
+    assert!(page.items.is_empty());
+    assert_eq!(page.total, 1);
+    assert_eq!(page.total_pages(), 1);
+    assert!(!page.has_next());
+}
+
+/// A filter has to reach the count as well as the page, or the two describe
+/// different queries.
+#[tokio::test]
+async fn a_filter_narrows_the_total_as_well_as_the_page() {
+    let db = database().await;
+    for id in 1..=6 {
+        add_user(&db, id, &format!("user{id}"), 20 + id)
+            .await
+            .unwrap();
+    }
+
+    let page = db
+        .fetch_page_projected::<User, _, _, _>(
+            User::query()
+                .filter(User::age.ge(24))
+                .order_by(User::id.asc()),
+            0,
+            2,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.total, 3, "ages 24, 25 and 26");
+    assert_eq!(page.items.len(), 2);
+}

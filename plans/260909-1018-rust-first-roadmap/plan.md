@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P1 và P2 XONG (2026-09-09). Kế tiếp: P3.
+Status: ĐANG CHẠY. P1, P2, P3 XONG (2026-09-09). Kế tiếp: P4.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -34,7 +34,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 |---|---|---|---|
 | P1 | `#[derive(Projection)]` + GroupBy transformer | khoảng trống lớn nhất; là thứ biến thư viện từ "sinh chuỗi SQL" thành "dùng được cho ứng dụng" | **XONG** |
 | P2 | Backend MySQL cho `oxider-query-exec` | xoá bất đối xứng builder-3 / exec-2 mà README đang phải cảnh báo ngay đầu file | **XONG** |
-| P3 | `fetch_count` + kiểu kết quả phân trang | phân trang là nhu cầu phổ thông nhất chưa được phục vụ | Nhỏ |
+| P3 | `fetch_count` + kiểu kết quả phân trang | phân trang là nhu cầu phổ thông nhất chưa được phục vụ | **XONG** |
 | P4 | Kiểu giá trị: decimal, uuid, json, array | không có bốn kiểu này thì nhiều schema Postgres thật không dùng được | Vừa |
 | P5 | `WITHIN GROUP` + gỡ `RatioToReport` | trả nợ API: 3 variant công khai mà mọi dialect đều từ chối | Nhỏ |
 | P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | Nhỏ |
@@ -154,6 +154,18 @@ Bốn quyết định trong chữ ký đó:
 Phạm vi: **hai tầng**. Lồng ba tầng (`User` → `Order` → `OrderLine`) hoãn tới khi có case thật; ghép hai lần vẫn ra kết quả, chỉ là chưa gọn.
 
 Đây là tính năng được dùng nhiều thứ hai của QueryDSL sau bản thân builder, và là lý do người ta dùng nó thay vì viết SQL tay.
+
+## P3. Đếm và phân trang - XONG
+
+`Select::count()` ở core **bọc** query (`SELECT COUNT(*) FROM (...) AS "oxider_count"`) chứ không thay projection.
+Bọc mới đúng với `DISTINCT`/`GROUP BY`/set op - có E2E chứng minh: 3 hàng, 2 tuổi khác nhau, `DISTINCT` đếm ra 2.
+Bỏ `LIMIT`/`OFFSET` và `ORDER BY`, trừ khi có `DISTINCT ON` vì Postgres bắt hai thứ đó phải khớp nhau.
+
+`Page<T>` ở exec: `items`, `total`, `size`, `number`, cộng `total_pages()`/`has_next()`/`has_previous()`.
+`fetch_page` đếm trước rồi fetch, hai lượt đi về.
+Cố ý không dùng `COUNT(*) OVER ()`: một lượt nhưng trang vượt cuối thì không có hàng nào để gắn số đếm, mất luôn tổng - đúng lúc cần nó nhất. Có test ghim.
+
+`fetch_count`/`fetch_page`/`fetch_page_projected` trên cả `Db` lẫn `Tx`.
 
 ## P4. Kiểu giá trị - thiết kế đã rõ, không phải chọn một
 

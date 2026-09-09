@@ -1,6 +1,6 @@
 //! The [`Db`] handle: a sqlx pool paired with its backend's dialect.
 
-use crate::{ops, Backend, Projection, Result, Tx};
+use crate::{ops, Backend, Page, Projection, Result, Tx};
 use oxider_query_core::Renderable;
 use sqlx::{Database, FromRow, Pool};
 
@@ -163,5 +163,75 @@ where
         Q: Renderable,
     {
         ops::fetch_optional_projected(&self.pool, query).await
+    }
+
+    /// Count the rows a query returns, ignoring any `LIMIT` and `OFFSET` on it.
+    ///
+    /// Wraps the query rather than swapping its projection for `COUNT(*)`, so
+    /// the answer is right for `DISTINCT`, `GROUP BY` and set operations too.
+    /// See [`Select::count`](oxider_query_core::Select::count).
+    pub async fn fetch_count<S, F, L>(
+        &self,
+        query: ::oxider_query_core::Select<S, F, L>,
+    ) -> Result<u64>
+    where
+        for<'r> i64: sqlx::Decode<'r, DB> + sqlx::Type<DB>,
+        usize: sqlx::ColumnIndex<DB::Row>,
+    {
+        ops::fetch_count(&self.pool, query.count()).await
+    }
+
+    /// Fetch one page of a query, and the total it was taken from.
+    ///
+    /// Counts first, then re-runs the query with `LIMIT`/`OFFSET` applied, so
+    /// the two answers describe the same query rather than two hand-written ones
+    /// that have to be kept in step. Pages are numbered from zero.
+    ///
+    /// Two round trips, deliberately: a windowed `COUNT(*) OVER ()` would do it
+    /// in one but returns nothing at all when the page is past the end, which is
+    /// exactly when the caller most needs the total.
+    pub async fn fetch_page<O, S, F, L>(
+        &self,
+        query: ::oxider_query_core::Select<S, F, L>,
+        number: u64,
+        size: u64,
+    ) -> Result<Page<O>>
+    where
+        O: for<'r> FromRow<'r, DB::Row> + Send + Unpin,
+        for<'r> i64: sqlx::Decode<'r, DB> + sqlx::Type<DB>,
+        usize: sqlx::ColumnIndex<DB::Row>,
+    {
+        let total = self.fetch_count(query.clone()).await?;
+        let items = self.fetch_all(query.page(number, size)).await?;
+        Ok(Page {
+            items,
+            total,
+            size,
+            number,
+        })
+    }
+
+    /// Fetch one page, reading each row by column position.
+    ///
+    /// The positional counterpart of [`fetch_page`](Db::fetch_page).
+    pub async fn fetch_page_projected<O, S, F, L>(
+        &self,
+        query: ::oxider_query_core::Select<S, F, L>,
+        number: u64,
+        size: u64,
+    ) -> Result<Page<O>>
+    where
+        O: for<'r> Projection<'r, DB::Row>,
+        for<'r> i64: sqlx::Decode<'r, DB> + sqlx::Type<DB>,
+        usize: sqlx::ColumnIndex<DB::Row>,
+    {
+        let total = self.fetch_count(query.clone()).await?;
+        let items = self.fetch_all_projected(query.page(number, size)).await?;
+        Ok(Page {
+            items,
+            total,
+            size,
+            number,
+        })
     }
 }

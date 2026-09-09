@@ -258,6 +258,45 @@ Cha có `Vec` rỗng khi `LEFT JOIN` không khớp gì.
 
 Hàm này nhận kết quả đã fetch chứ không gắn vào `Db`, nên ai render rồi tự bind bằng driver của mình vẫn dùng được.
 
+## 12.10. Đếm và phân trang
+
+Phân trang cần hai câu trả lời: lấy hàng nào, và tổng cộng có bao nhiêu.
+Tự viết query đếm bằng tay nghĩa là phải giữ nó đồng bộ với query thật.
+
+```rust
+let total: u64 = db.fetch_count(User::query().filter(User::age.ge(18))).await?;
+```
+
+`count()` **bọc** query lại chứ không thay projection thành `COUNT(*)`:
+
+```sql
+SELECT COUNT(*) FROM (SELECT ... ) AS "oxider_count"
+```
+
+Bọc mới đúng với `DISTINCT`, `GROUP BY` và set operation, vì ở những query đó số hàng trả về không phải số hàng mệnh đề FROM sinh ra.
+
+`LIMIT` và `OFFSET` bị bỏ: chúng chọn một trang, mà đếm là để biết có bao nhiêu trang.
+`ORDER BY` cũng bỏ, vì sắp xếp không đổi được số đếm.
+Ngoại lệ duy nhất là `DISTINCT ON`: PostgreSQL bắt buộc biểu thức của nó phải khớp các term `ORDER BY` đầu tiên, nên ở đó thứ tự được giữ lại.
+
+`fetch_page` làm cả hai việc và trả về `Page<T>`:
+
+```rust
+let page: Page<User> = db
+    .fetch_page(User::query().order_by(User::id.asc()), 1, 20)
+    .await?;
+
+page.items;          // 20 hàng của trang thứ hai
+page.total;          // tổng số hàng của query chưa phân trang
+page.total_pages();  // total chia lên
+page.has_next();
+```
+
+Trang đánh số từ 0. Có bản `fetch_page_projected` đọc theo vị trí.
+
+Hai lượt đi về, cố ý.
+`COUNT(*) OVER ()` làm được trong một lượt nhưng khi trang vượt quá cuối thì không trả hàng nào cả, tức là mất luôn tổng số - đúng lúc người gọi cần nó nhất.
+
 ## Bước tiếp theo
 
 [Chương 13](./13-codegen.md) sinh entity từ một schema đã có.

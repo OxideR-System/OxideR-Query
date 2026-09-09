@@ -333,3 +333,72 @@ fn a_temporal_column_compares_against_a_chrono_value() {
         &[timestamp("2024-03-15 09:30:00")],
     );
 }
+
+/// Counting wraps the query rather than swapping its projection, because the
+/// number of rows a `DISTINCT` or `GROUP BY` query returns is not the number of
+/// rows its FROM clause produces.
+#[test]
+fn counting_wraps_the_query_it_counts() {
+    let query = User::query()
+        .select((User::id, User::name))
+        .filter(User::age.ge(18))
+        .count();
+    assert_sql(
+        query.clone(),
+        &Postgres,
+        r#"SELECT COUNT(*) FROM (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."age" >= $1) AS "oxider_count""#,
+        &[Value::Int(18)],
+    );
+    assert_sql(
+        query,
+        &MySql,
+        "SELECT COUNT(*) FROM (SELECT `users`.`id`, `users`.`name` FROM `users` WHERE `users`.`age` >= ?) AS `oxider_count`",
+        &[Value::Int(18)],
+    );
+}
+
+/// `LIMIT` and `OFFSET` choose a page; counting exists to say how many pages
+/// there are, so they have to go. `ORDER BY` goes too - it cannot change a
+/// count, and sorting rows nobody reads is wasted work.
+#[test]
+fn counting_drops_the_paging_and_ordering_of_the_query_it_counts() {
+    let query = User::query().order_by(User::name.asc()).page(3, 20).count();
+    assert_sql_only(
+        query,
+        &Postgres,
+        r#"SELECT COUNT(*) FROM (SELECT * FROM "users") AS "oxider_count""#,
+    );
+}
+
+/// The exception: PostgreSQL requires `DISTINCT ON` expressions to match the
+/// leading `ORDER BY` terms, so dropping the ordering here would turn a valid
+/// query into one the server refuses.
+#[test]
+fn counting_keeps_the_ordering_a_distinct_on_query_depends_on() {
+    let query = User::query()
+        .distinct_on(User::name)
+        .order_by(User::name.asc())
+        .order_by(User::age.desc())
+        .count();
+    assert_sql_only(
+        query,
+        &Postgres,
+        r#"SELECT COUNT(*) FROM (SELECT DISTINCT ON ("users"."name") * FROM "users" ORDER BY "users"."name" ASC, "users"."age" DESC) AS "oxider_count""#,
+    );
+}
+
+/// A named parameter inside the counted query still resolves, so a template can
+/// be counted and fetched with the same binding.
+#[test]
+fn counting_carries_the_bindings_of_the_query_it_counts() {
+    let query = User::query()
+        .filter(User::age.ge(param::<i32>("floor")))
+        .bind("floor", 21)
+        .count();
+    assert_sql(
+        query,
+        &Postgres,
+        r#"SELECT COUNT(*) FROM (SELECT * FROM "users" WHERE "users"."age" >= $1) AS "oxider_count""#,
+        &[Value::Int(21)],
+    );
+}

@@ -119,3 +119,24 @@ where
         None => Ok(None),
     }
 }
+
+/// Render, bind and run a counting query, reading its single value.
+///
+/// The count comes back as a signed integer because that is what every engine
+/// gives; it cannot be negative, so the conversion is a clamp rather than a
+/// decision.
+pub(crate) async fn fetch_count<'e, DB, E, Q>(executor: E, query: Q) -> Result<u64>
+where
+    DB: Backend,
+    E: Executor<'e, Database = DB>,
+    Q: Renderable,
+    for<'q> <DB as Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'r> i64: sqlx::Decode<'r, DB> + sqlx::Type<DB>,
+    usize: sqlx::ColumnIndex<DB::Row>,
+{
+    let rendered = query.render_with(&DB::Dialect::default())?;
+    let bound = DB::bind(sqlx::query::<DB>(&rendered.sql), &rendered.params);
+    let row = bound.fetch_one(executor).await?;
+    let count: i64 = sqlx::Row::try_get(&row, 0)?;
+    Ok(count.max(0) as u64)
+}
