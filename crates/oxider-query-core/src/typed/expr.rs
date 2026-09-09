@@ -99,6 +99,13 @@ pub type Predicate<S> = Expr<S, bool>;
 /// over `Into<T>`: the `Into` form collides with the `Column` impl under
 /// Rust's coherence rules, so widening conversions are listed explicitly
 /// instead.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot stand where a SQL expression of type `{T}` is expected",
+    label = "expected something of type `{T}`",
+    note = "a column of `{T}`, an expression over one, or a plain `{T}` value all work here",
+    note = "values are not converted on the way in: comparing against a `{T}` column \
+            takes a `{T}`, and a cast has to be written as one"
+)]
 pub trait IntoExpr<T> {
     /// The entities this operand references. `Nil` for a bound value.
     type Sources;

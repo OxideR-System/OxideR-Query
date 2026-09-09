@@ -17,7 +17,10 @@ User::name.eq(123);
 ```
 
 ```text
-error[E0277]: the trait bound `{integer}: IntoExpr<String>` is not satisfied
+error[E0277]: `{integer}` cannot stand where a SQL expression of type `String` is expected
+   = note: a column of `String`, an expression over one, or a plain `String` value all work here
+   = note: values are not converted on the way in: comparing against a `String` column
+           takes a `String`, and a cast has to be written as one
 ```
 
 Không có `Into` ngầm nào ở đây.
@@ -30,8 +33,14 @@ User::query().filter(Department::name.eq("AI"));
 ```
 
 ```text
-error[E0277]: the trait bound `Nil: Contains<Department, _>` is not satisfied
+error[E0277]: `Department` is not in scope in this query
+   = note: a query may only read the entities it selects from and joins to
+   = note: join `Department`, start the query from it, or move this into a subquery over it
 ```
+
+Thông điệp đó không phải mặc định của trình biên dịch.
+Không có gì thì rustc báo `Nil: Contains<Department, _>` chưa thoả mãn, tức là gọi tên cái danh sách ở tầng type chứ không gọi tên lỗi.
+Mỗi trait chứng cứ trong crate này đều mang một `#[diagnostic::on_unimplemented]` viết sẵn câu tiếng người cho đúng tình huống nó bị vi phạm; xem [mục 14.9](#149-lỗi-biên-dịch-đọc-được).
 
 Đây là bảo đảm mà QueryDSL không có.
 Ở QueryDSL, quên một join sẽ cho một câu SQL sinh ra tích Descartes hoặc một lỗi từ database lúc chạy.
@@ -138,7 +147,27 @@ User::query().select((User::name, item_total));
 `item_total` mang `F = Cons<Order, Nil>`, và `select` đòi mọi entity trong `F` phải có trong phạm vi.
 Đây chính là lý do `Select` có hai tham số kiểu; xem [mục 8.1](./08-subqueries.md).
 
-## 14.9. Những gì KHÔNG được bảo đảm
+## 14.9. Lỗi biên dịch đọc được
+
+Một hệ thống kiểu chỉ hữu ích nếu người đọc hiểu được lời từ chối của nó.
+Các chứng cứ ở đây là danh sách và witness ở tầng type, nên thông điệp mặc định của rustc nói về `Cons`, `Nil` và `There<Idx>` - đúng nhưng vô nghĩa với người đang viết query.
+
+Nên mỗi trait cổng đều mang sẵn thông điệp riêng:
+
+| Trait | Vi phạm nghĩa là |
+|---|---|
+| `Contains`, `ContainsAll` | query đọc bảng chưa đưa vào phạm vi |
+| `IntoExpr<T>` | vế phải không phải thứ đứng được ở chỗ cần một biểu thức `T` |
+| `SqlType` | kiểu Rust đó không phải kiểu cột |
+| `Orderable` | kiểu đó không có thứ tự trong SQL |
+| `Numeric` | kiểu đó không làm số học được |
+| `Temporal` | kiểu đó không phải ngày giờ |
+
+**Giới hạn, nói thẳng:** rustc chỉ in các thông điệp này cho lỗi `E0277`, tức là khi trait bound nằm ở chỗ nó phải kiểm tra.
+Khi bound nằm trên chính method - `Order::status.sum()` chẳng hạn - lỗi là `E0599` "method exists but its trait bounds were not satisfied", và `E0599` không đọc `on_unimplemented`.
+Ở mục 14.3 bạn thấy đúng dạng đó. Nó vẫn nêu ra `String: Numeric` nên vẫn đọc được, chỉ là không có phần giải thích thêm.
+
+## 14.10. Những gì KHÔNG được bảo đảm
 
 Trung thực về giới hạn quan trọng ngang với việc liệt kê điểm mạnh.
 
@@ -163,7 +192,7 @@ Mô hình hóa những luật đó ở tầng type sẽ khiến API nặng hơn 
 Entity mô tả những gì bạn khai báo, không phải những gì database thật sự có.
 Muốn hai thứ khớp nhau thì [sinh entity từ schema](./13-codegen.md).
 
-## 14.10. Kiểm tra ở đâu
+## 14.11. Kiểm tra ở đâu
 
 | Bảo đảm | Kiểm tra bằng |
 |---|---|

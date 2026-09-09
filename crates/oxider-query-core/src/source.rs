@@ -26,6 +26,17 @@ pub struct Here;
 pub struct There<Idx>(PhantomData<Idx>);
 
 /// `Self` contains entity `E`, at the position witnessed by `Idx`.
+///
+/// Unsatisfied, this is the error for reading a table the query never brought
+/// into scope. The compiler would otherwise report it as `Nil: Contains<User,
+/// _>`, naming the type-level list rather than the mistake, so the message is
+/// written out here instead.
+#[diagnostic::on_unimplemented(
+    message = "`{E}` is not in scope in this query",
+    label = "this reads a column of `{E}`",
+    note = "a query may only read the entities it selects from and joins to",
+    note = "join `{E}`, start the query from it, or move this into a subquery over it"
+)]
 pub trait Contains<E, Idx> {}
 
 impl<E, Tail> Contains<E, Here> for Cons<E, Tail> {}
@@ -33,6 +44,12 @@ impl<E, Tail> Contains<E, Here> for Cons<E, Tail> {}
 impl<E, Head, Tail, Idx> Contains<E, There<Idx>> for Cons<Head, Tail> where Tail: Contains<E, Idx> {}
 
 /// Every entity in `List` is contained in `Self`, witnessed by `Idxs`.
+#[diagnostic::on_unimplemented(
+    message = "this reads entities the query does not have in scope",
+    label = "one of these entities is not in the query",
+    note = "the query has `{Self}` in scope and this expression needs `{List}`",
+    note = "join what is missing, or move this into a subquery over it"
+)]
 pub trait ContainsAll<List, Idxs> {}
 
 impl<S> ContainsAll<Nil, Nil> for S {}

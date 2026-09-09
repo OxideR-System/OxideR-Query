@@ -144,6 +144,12 @@ impl<T: Into<Value>> From<Option<T>> for Value {
 /// The base capability, matching QueryDSL's `SimpleExpression`: equality,
 /// null tests, `IN`, and use as a projected column. Every type that can be
 /// bound as a value is one, plus wrapper types the value layer understands.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SQL column type",
+    note = "columns hold the primitive types, `String`, `Vec<u8>`, `Option<T>` of any \
+            of those, and the date, decimal, UUID and JSON types their features enable",
+    note = "a custom type needs `impl SqlType` and `impl ToSqlValue` saying how it binds"
+)]
 pub trait SqlType {}
 
 /// Marker for Rust types whose expressions support ordering comparisons
@@ -151,14 +157,31 @@ pub trait SqlType {}
 ///
 /// Matches QueryDSL's `ComparableExpression`. Numbers, strings and temporals
 /// qualify; booleans and byte strings do not.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no ordering in SQL",
+    note = "`<`, `>`, `BETWEEN`, `ORDER BY`, `MIN` and `MAX` need a type the engines \
+            agree how to sort: numbers, strings, dates, times and UUIDs",
+    note = "booleans, byte strings and JSON are comparable for equality only"
+)]
 pub trait Orderable: SqlType {}
 
 /// Marker for numeric Rust types, gating arithmetic and the arithmetic
 /// aggregates `SUM`/`AVG`. Matches QueryDSL's `NumberExpression`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a numeric SQL type",
+    note = "arithmetic and the `SUM`, `AVG`, `STDDEV` and `VARIANCE` aggregates are \
+            offered on numeric columns only",
+    note = "counting rows of any type is `count()`, or `count_all()` for the whole group"
+)]
 pub trait Numeric: Orderable {}
 
 /// Marker for date/time Rust types, gating the date-part extraction and date
 /// arithmetic operators. Matches QueryDSL's `TemporalExpression`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a date or time SQL type",
+    note = "extracting a year or adding days needs a date, time or timestamp column",
+    note = "the temporal types arrive with the `chrono` feature, which is on by default"
+)]
 pub trait Temporal: Orderable {}
 
 macro_rules! mark {

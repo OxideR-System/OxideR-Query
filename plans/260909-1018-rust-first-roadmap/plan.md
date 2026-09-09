@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P1-P5 XONG (2026-09-09). Kế tiếp: P6.
+Status: ĐANG CHẠY. P1-P6 XONG (2026-09-09). Kế tiếp: P7.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -37,7 +37,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 | P3 | `fetch_count` + kiểu kết quả phân trang | phân trang là nhu cầu phổ thông nhất chưa được phục vụ | **XONG** |
 | P4 | Kiểu giá trị: decimal, uuid, json, array | không có bốn kiểu này thì nhiều schema Postgres thật không dùng được | **XONG** trừ array |
 | P5 | `WITHIN GROUP` + gỡ `RatioToReport` | trả nợ API: 3 variant công khai mà mọi dialect đều từ chối | **XONG** |
-| P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | Nhỏ |
+| P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | **XONG** |
 | P7 | Codegen Postgres (+ PK/FK) | giá trị cao, công sức cũng cao nhất trong danh sách | Lớn |
 | P8 | CI workflow | `make check` đã có, chỉ còn nối vào GitHub Actions | Rất nhỏ |
 | P9 | Streaming + batch DML | chỉ cần khi có người dùng chạm trần hiệu năng | Vừa |
@@ -233,7 +233,20 @@ Biết trước điều này thì đừng kỳ vọng nhiều: giá trị chính
 
 `RatioToReport` gỡ hẳn, không dialect nào có.
 
-## P7. Thông báo lỗi biên dịch
+## P6. Thông báo lỗi biên dịch - XONG
+
+`#[diagnostic::on_unimplemented]` trên `Contains`, `ContainsAll`, `IntoExpr`, và thêm `SqlType`, `Orderable`, `Numeric`, `Temporal` - bốn cái sau cùng một dòng và cùng một loại nhầm lẫn, tách ra chỉ làm bộ thông điệp khập khiễng.
+
+Lỗi đáng giá nhất là lỗi phạm vi. Trước: `the trait bound Nil: Contains<Department, _> is not satisfied`, gọi tên danh sách ở tầng type chứ không gọi tên lỗi.
+Sau: ``` `Department` is not in scope in this query ``` kèm hai note nói phải làm gì.
+
+**Đo được và có giới hạn thật.** Đã thử nghiệm bằng cách gắn thông điệp mẫu lên `NumericAggOps` rồi biên dịch: rustc **không** in `on_unimplemented` cho `E0599` ("method exists but its trait bounds were not satisfied"), chỉ in cho `E0277`.
+Nghĩa là `Order::status.sum()` vẫn ra thông điệp cũ, còn `percentile_cont(0.5).within_group(Order::status)` - cùng bound nhưng nằm ở where clause - thì ra thông điệp mới.
+Đây là giới hạn của rustc chứ không phải thiếu sót của cách làm; đã ghi vào mục 14.9 của tài liệu thay vì để người đọc tự phát hiện.
+
+Không dùng `trybuild` để ghim từng chữ trong thông điệp.
+File `.stderr` snapshot chứa số dòng và câu chữ của chính rustc, nên vỡ theo mỗi bản rustc mới - một bộ test hỏng vì lý do không liên quan gì tới thư viện thì tệ hơn là không có.
+Doc test `compile_fail` vẫn ghim được phần quan trọng là *có từ chối hay không*; câu chữ nằm trong tài liệu và được đọc lại khi sửa.
 
 Kiểm tra phạm vi ở tầng type là điểm mạnh nhất của thư viện, nhưng hiện nó nói:
 

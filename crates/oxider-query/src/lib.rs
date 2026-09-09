@@ -37,7 +37,8 @@
 //! # use oxider_query::prelude::*;
 //! # #[derive(Entity)] #[oxider(table = "users")]
 //! # struct User { id: i64, name: String }
-//! User::name.eq(123); // `i64` is not an expression of type `String`
+//! // error: `{integer}` cannot stand where a SQL expression of type `String` is expected
+//! User::name.eq(123);
 //! ```
 //!
 //! Referencing a table the query never joined:
@@ -48,7 +49,7 @@
 //! # struct User { id: i64, name: String }
 //! # #[derive(Entity)] #[oxider(table = "departments")]
 //! # struct Department { id: i64, name: String }
-//! // Department was never joined -> `Nil: Contains<Department>` is unsatisfied.
+//! // error: `Department` is not in scope in this query
 //! User::query().filter(Department::name.eq("AI"));
 //! ```
 //!
@@ -58,7 +59,7 @@
 //! # use oxider_query::prelude::*;
 //! # #[derive(Entity)] #[oxider(table = "orders")]
 //! # struct Order { id: i64, status: String }
-//! Order::status.sum(); // `String: Numeric` is unsatisfied
+//! Order::status.sum(); // error: `String: Numeric` is not satisfied
 //! ```
 //!
 //! Assigning a column of a different entity in an UPDATE:
