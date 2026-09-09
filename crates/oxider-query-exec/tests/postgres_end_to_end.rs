@@ -106,21 +106,21 @@ async fn database() -> Option<(PostgresDb, tokio::sync::MutexGuard<'static, ()>)
     Some((db, guard))
 }
 
-/// Skip the test body when no server is configured.
+/// Bind a handle for the test body, or skip when no server is configured.
+///
+/// A statement macro rather than an expression one, because the guard has to be
+/// bound in the caller's scope: bound inside an expression it would drop as soon
+/// as that expression finished, leaving the suite unserialised while every
+/// comment here claimed otherwise.
 macro_rules! db_or_skip {
-    () => {
-        // The guard is bound alongside the handle so it lives as long as the
-        // test body, rather than being dropped at the end of this expression.
-        match database().await {
-            Some((db, guard)) => {
-                let _guard = guard;
-                db
-            }
+    ($db:ident) => {
+        let ($db, _guard) = match database().await {
+            Some(pair) => pair,
             None => {
                 eprintln!("OXIDER_POSTGRES_URL is not set, skipping");
                 return;
             }
-        }
+        };
     };
 }
 
@@ -137,7 +137,7 @@ async fn add_user(db: &PostgresDb, id: i64, name: &str, age: i64) -> Result<u64>
 
 #[tokio::test]
 async fn an_insert_round_trips_through_a_select() {
-    let db = db_or_skip!();
+    db_or_skip!(db);
     add_user(&db, 1, "ada", 36).await.unwrap();
     add_user(&db, 2, "grace", 45).await.unwrap();
 
@@ -166,7 +166,7 @@ async fn an_insert_round_trips_through_a_select() {
 /// a real temporal rather than the string.
 #[tokio::test]
 async fn temporal_values_bind_as_the_types_the_columns_actually_are() {
-    let db = db_or_skip!();
+    db_or_skip!(db);
     let day = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
     let time = NaiveTime::from_hms_opt(9, 30, 0).unwrap();
     let stamp = day.and_hms_opt(9, 30, 0).unwrap();
@@ -213,7 +213,7 @@ async fn temporal_values_bind_as_the_types_the_columns_actually_are() {
 
 #[tokio::test]
 async fn the_postgres_only_clauses_run_where_they_were_rendered_for() {
-    let db = db_or_skip!();
+    db_or_skip!(db);
     add_user(&db, 1, "ada", 36).await.unwrap();
     add_user(&db, 2, "grace", 45).await.unwrap();
     add_user(&db, 3, "ada", 20).await.unwrap();
@@ -261,7 +261,7 @@ async fn the_postgres_only_clauses_run_where_they_were_rendered_for() {
 
 #[tokio::test]
 async fn a_named_parameter_binds_the_same_way_a_literal_does() {
-    let db = db_or_skip!();
+    db_or_skip!(db);
     add_user(&db, 1, "ada", 36).await.unwrap();
     add_user(&db, 2, "grace", 45).await.unwrap();
 
@@ -278,7 +278,7 @@ async fn a_named_parameter_binds_the_same_way_a_literal_does() {
 
 #[tokio::test]
 async fn a_transaction_that_returns_an_error_rolls_back() {
-    let db = db_or_skip!();
+    db_or_skip!(db);
     add_user(&db, 1, "ada", 36).await.unwrap();
 
     let outcome: std::result::Result<(), Abort> = db
@@ -309,7 +309,7 @@ async fn a_transaction_that_returns_an_error_rolls_back() {
 /// zone would be accepted and wrong.
 #[tokio::test]
 async fn an_instant_binds_to_a_zoned_column_without_losing_its_offset() {
-    let db = db_or_skip!();
+    db_or_skip!(db);
     let seen = Utc.with_ymd_and_hms(2024, 3, 15, 9, 30, 0).unwrap();
 
     db.execute(
