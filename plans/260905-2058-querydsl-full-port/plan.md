@@ -1,8 +1,9 @@
 # OxideR-Query: port toàn bộ QueryDSL sang Rust + trang docs Docusaurus
 
-Status: PHASE 1-6 VÀ 9 XONG, CÒN PHASE 7-8 VÀ 10
+Status: KHÉP LẠI. Mục tiêu đã đổi sang "query builder tốt nhất cho Rust"; phần việc còn lại chuyển sang `plans/260909-1018-rust-first-roadmap/plan.md`.
+Phase 1-6, 7 và 9 xong. Phase 7 khép lại 2026-09-09: Postgres từ commit `fa4b8ef` (v0.2.0), MySQL sau đó.
 Ngày tạo: 2026-09-05
-Cập nhật: 2026-09-05
+Cập nhật: 2026-09-09
 Baseline khi bắt đầu: v0.1.0, 38 test xanh.
 Hiện tại: 166 test + 13 doc test xanh, clippy sạch, fmt sạch, trang Docusaurus build được.
 
@@ -97,7 +98,7 @@ Cách làm này bắt được bug thật, không phải hình thức:
 | 4 | DML đầy đủ: insert nhiều dòng, insert-select, upsert, RETURNING, update-from, delete-using | XONG (MERGE bỏ: chỉ Oracle/SQL Server, ngoài ba dialect đang hỗ trợ) |
 | 5 | Projection và mapping: tuple projection, `#[derive(Projection)]`, GroupBy transformer | MỘT PHẦN: tuple projection arity 2..=12 xong; derive và transformer chưa |
 | 6 | Query động và escape hatch: `filter_opt`, `and_opt`/`or_opt`, raw SQL có tham số, named param | XONG |
-| 7 | Exec: backend Postgres và MySQL | CHƯA |
+| 7 | Exec: backend Postgres và MySQL | XONG |
 | 8 | Codegen: introspect Postgres và MySQL, PK/FK/index | CHƯA |
 | 9 | Trang docs Docusaurus, tiếng Việt | XONG |
 | 10 | Chất lượng: ma trận test, bench, CI, README và docs đồng bộ | MỘT PHẦN: test/bench/README/docs xong; CI chưa |
@@ -139,11 +140,10 @@ export PATH="$TC:$PATH"
 
 ## Việc còn lại
 
-1. Phase 7: backend exec cho Postgres và MySQL. Chỉ cần impl `Backend` cho `sqlx::Postgres` và `sqlx::MySql`; `Db` và `Tx` không phải sửa.
-2. Phase 8: introspect Postgres (`information_schema`) và MySQL. Module `identifier` đã dùng chung được.
-3. Phase 5 phần còn lại: `#[derive(Projection)]` và GroupBy transformer.
-4. Phase 10 phần còn lại: workflow CI chạy test, clippy, fmt và build trang docs.
-5. E2E cho Postgres và MySQL qua Docker, bật bằng env `OXIDER_TEST_PG_URL` / `OXIDER_TEST_MYSQL_URL`, thiếu env thì skip.
+Chuyển hết sang `plans/260909-1018-rust-first-roadmap/plan.md`, nơi mục tiêu đã đổi và thứ tự ưu tiên được xếp lại.
+Tóm tắt cái còn nợ khi khép plan này: Phase 5 (`#[derive(Projection)]`, GroupBy transformer), Phase 8 (codegen Postgres/MySQL) và Phase 10 (workflow CI).
+
+E2E qua Docker cho cả Postgres lẫn MySQL đã có, bật bằng `OXIDER_POSTGRES_URL` / `OXIDER_MYSQL_URL`, thiếu env thì skip.
 
 ## Câu hỏi chưa giải quyết
 
