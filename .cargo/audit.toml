@@ -1,0 +1,30 @@
+# Configuration for `cargo audit`, read by `make audit` and by CI.
+#
+# Nothing is ignored here for convenience. An entry is only added when the
+# vulnerable code path has been read and shown to be unreachable from this
+# workspace, and each one records that reasoning so it can be re-checked rather
+# than inherited on trust.
+
+[advisories]
+# RUSTSEC-2023-0071 - Marvin Attack in `rsa` 0.9.10: key recovery through a
+# timing sidechannel. Medium severity, and there is no fixed version to move to.
+#
+# Reachability, checked rather than assumed:
+#
+# - `rsa` reaches this workspace through exactly one edge, `sqlx-mysql`, which
+#   declares it as a required dependency rather than an optional one. The only
+#   way to drop it is to drop MySQL support.
+# - `sqlx-mysql` names `rsa` in one file, `src/connection/auth.rs`, in one
+#   function, `encrypt_rsa`. That function encrypts the password with the
+#   server's *public* key during `sha256_password` and `caching_sha2_password`
+#   authentication, and it returns before touching `rsa` at all when the
+#   connection is TLS.
+# - The Marvin Attack is against private-key operations: an attacker submits
+#   chosen ciphertexts and times the decryption to recover the key. The private
+#   key in MySQL authentication belongs to the server, which is not this code.
+#   Nothing in this workspace holds an RSA private key, decrypts, or signs.
+#
+# So the advisory is real and the vulnerable operation is one this workspace
+# never performs. Re-check this if sqlx-mysql ever verifies a signature or
+# decrypts, or drop the entry as soon as a patched `rsa` is released.
+ignore = ["RUSTSEC-2023-0071"]
