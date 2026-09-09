@@ -29,6 +29,7 @@
 //! SET time_zone = '+00:00'
 //! ```
 
+use crate::scalars::{bind_decimal, bind_json};
 use crate::Backend;
 use oxider_query_core::formats::{DATE, DATE_TIME, DATE_TIME_UTC, TIME};
 use oxider_query_core::MySql as MySqlDialect;
@@ -82,6 +83,11 @@ macro_rules! bind_params {
                     Some(stamp) => query.bind(stamp),
                     None => query.bind(s.as_str()),
                 },
+                Value::Decimal(s) => bind_decimal!(query, s),
+                // Text, not sqlx's `Uuid`, which encodes as BINARY(16) and would
+                // write unreadable bytes into a CHAR(36) column. See `scalars`.
+                Value::Uuid(s) => query.bind(s.as_str()),
+                Value::Json(s) => bind_json!(query, s),
                 Value::Null => query.bind(Option::<i64>::None),
             };
         }

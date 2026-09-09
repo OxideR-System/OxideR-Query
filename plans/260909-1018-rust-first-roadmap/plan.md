@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P1, P2, P3 XONG (2026-09-09). Kế tiếp: P4.
+Status: ĐANG CHẠY. P1, P2, P3, P4 XONG (2026-09-09). Kế tiếp: P5.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -35,7 +35,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 | P1 | `#[derive(Projection)]` + GroupBy transformer | khoảng trống lớn nhất; là thứ biến thư viện từ "sinh chuỗi SQL" thành "dùng được cho ứng dụng" | **XONG** |
 | P2 | Backend MySQL cho `oxider-query-exec` | xoá bất đối xứng builder-3 / exec-2 mà README đang phải cảnh báo ngay đầu file | **XONG** |
 | P3 | `fetch_count` + kiểu kết quả phân trang | phân trang là nhu cầu phổ thông nhất chưa được phục vụ | **XONG** |
-| P4 | Kiểu giá trị: decimal, uuid, json, array | không có bốn kiểu này thì nhiều schema Postgres thật không dùng được | Vừa |
+| P4 | Kiểu giá trị: decimal, uuid, json, array | không có bốn kiểu này thì nhiều schema Postgres thật không dùng được | **XONG** trừ array |
 | P5 | `WITHIN GROUP` + gỡ `RatioToReport` | trả nợ API: 3 variant công khai mà mọi dialect đều từ chối | Nhỏ |
 | P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | Nhỏ |
 | P7 | Codegen Postgres (+ PK/FK) | giá trị cao, công sức cũng cao nhất trong danh sách | Lớn |
@@ -167,7 +167,27 @@ Cố ý không dùng `COUNT(*) OVER ()`: một lượt nhưng trang vượt cu�
 
 `fetch_count`/`fetch_page`/`fetch_page_projected` trên cả `Db` lẫn `Tx`.
 
-## P4. Kiểu giá trị - thiết kế đã rõ, không phải chọn một
+## P4. Kiểu giá trị - XONG (trừ array)
+
+Làm đúng thiết kế ghi ở mục dưới, không đổi gì: `Value::Decimal/Uuid/Json` giữ text chuẩn hoá, enum không đổi hình theo feature, `ToSqlValue` nằm sau feature `rust_decimal`/`uuid`/`json`.
+Markers: Decimal là `Numeric`, Uuid là `Orderable`, Json chỉ `SqlType`.
+
+Quy tắc bind chốt ở `exec/src/scalars.rs`: **kiểu native ở engine nào có, text ở engine nào không.**
+Ngoại lệ duy nhất trông có vẻ thiếu nhất quán là UUID trên MySQL, bind bằng text chứ không bằng `Uuid` của sqlx: kiểu đó mã hoá `BINARY(16)`, đem ghi vào cột `CHAR(36)` là ghi byte rác mà không báo lỗi.
+
+Phát hiện trong lúc chạy test thật, đã ghim thành test chứ không giấu: **SQLite không có decimal chính xác.**
+Cột `NUMERIC` sắp xếp đúng nghĩa số học nhưng làm tròn qua `REAL`; cột `TEXT` giữ đủ chữ số nhưng so sánh theo chuỗi (`"10.25" < "9.5"`).
+Không có lựa chọn thứ ba, và cả hai nửa đều có test riêng để không ai đọc nửa này mà tưởng là khuyến nghị.
+
+Feature `chrono` cố ý **không** có passthrough ở facade.
+Dependency kế thừa từ bảng workspace đã bật default của core, nên `default-features = false` viết ở facade không có tác dụng; một feature không tắt được thứ nó nói thì không nên tồn tại.
+
+Nợ phát sinh đã trả luôn: `.PHONY` của Makefile từ P2 chứa một ký tự `\n` viết nhầm thành literal, và ba target `mysql-up`/`mysql-down`/`test-mysql` được khai báo ở đó nhưng chưa bao giờ được viết.
+Nay có đủ, cộng `test-db` chạy cả ba suite; hai target `test-pg`/`test-mysql` đổi sang `--all-features` vì với `--features postgres` thì test value kind bị cfg loại khỏi bản dịch mà suite vẫn báo xanh.
+
+Array Postgres tách ra làm sau: nó cần thêm toán tử (`= ANY`, `@>`, `&&`) chứ không chỉ thêm kiểu.
+
+## Ghi chú thiết kế P4 (giữ nguyên bản viết trước khi làm)
 
 Phát hiện quan trọng: `Value` **không phụ thuộc feature flag**.
 `Date`/`Time`/`DateTime` giữ `String` text chuẩn hoá (`value.rs:33-38`); feature `chrono` chỉ thêm impl `ToSqlValue` format vào đó; backend Postgres parse ngược lại trước khi bind (`postgres.rs:66-77`).

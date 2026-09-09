@@ -29,7 +29,16 @@ macro_rules! bind_params {
                 Value::Real(r) => query.bind(*r),
                 Value::Text(s) => query.bind(s.as_str()),
                 Value::Bytes(b) => query.bind(b.as_slice()),
-                Value::Date(s) | Value::Time(s) | Value::DateTime(s) => query.bind(s.as_str()),
+                // SQLite has a type for none of these, so every one binds as
+                // the canonical text `Value` already holds. A decimal lands in a
+                // NUMERIC-affinity column as a number, which is what makes
+                // comparing one order it rather than sort it as a string.
+                Value::Date(s)
+                | Value::Time(s)
+                | Value::DateTime(s)
+                | Value::Decimal(s)
+                | Value::Uuid(s)
+                | Value::Json(s) => query.bind(s.as_str()),
                 Value::Null => query.bind(Option::<i64>::None),
             };
         }

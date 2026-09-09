@@ -53,6 +53,7 @@ mod error;
 mod ops;
 mod page;
 mod projection;
+mod scalars;
 mod transform;
 mod tx;
 

@@ -509,3 +509,84 @@ async fn statements_the_engine_cannot_run_are_refused_before_reaching_it() {
         other => panic!("expected a render error, got {other:?}"),
     }
 }
+
+/// MySQL has `DECIMAL` and `JSON` but no UUID type, so this pins both halves of
+/// the rule: the first two bind as the engine's own types, and a UUID binds as
+/// hyphenated text into a `CHAR(36)`.
+///
+/// sqlx's `Uuid` would encode as `BINARY(16)` instead, which is why this backend
+/// deliberately does not use it - it would write unreadable bytes into the
+/// column shape most schemas actually have.
+#[cfg(all(feature = "rust_decimal", feature = "uuid", feature = "json"))]
+#[tokio::test]
+async fn decimals_and_json_bind_natively_while_a_uuid_binds_as_text() {
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+    use uuid::Uuid;
+
+    // `id` is a `Uuid` on the Rust side even though the column is CHAR(36):
+    // the entity says what you may bind, and this backend writes a UUID as its
+    // hyphenated text.
+    #[derive(oxider_query::Entity, Debug, PartialEq)]
+    #[oxider(table = "ox_invoices")]
+    struct Invoice {
+        id: Uuid,
+        total: Decimal,
+        metadata: serde_json::Value,
+    }
+
+    #[derive(sqlx::FromRow, Debug, PartialEq)]
+    struct Stored {
+        id: String,
+        total: Decimal,
+        metadata: serde_json::Value,
+    }
+
+    db_or_skip!(db);
+    sqlx::query("DROP TABLE IF EXISTS ox_invoices")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TABLE ox_invoices (id CHAR(36) PRIMARY KEY, total DECIMAL(30, 10) NOT NULL, \
+         metadata JSON NOT NULL)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let id = Uuid::parse_str("67e55044-10b1-426f-9247-bb680e5fe0c8").unwrap();
+    let total = Decimal::from_str("12345678901234.5678901234").unwrap();
+    let metadata = serde_json::json!({ "plan": "pro", "seats": 5 });
+
+    db.execute(
+        Invoice::insert()
+            .set(Invoice::id, id)
+            .set(Invoice::total, total)
+            .set(Invoice::metadata, metadata.clone()),
+    )
+    .await
+    .unwrap();
+
+    let found: Vec<Stored> = db.fetch_all(Invoice::query()).await.unwrap();
+    assert_eq!(
+        found,
+        vec![Stored {
+            id: "67e55044-10b1-426f-9247-bb680e5fe0c8".into(),
+            total,
+            metadata
+        }],
+        "the uuid is readable text, and every decimal digit survives"
+    );
+
+    let above: Vec<Stored> = db
+        .fetch_all(Invoice::query().filter(Invoice::total.gt(Decimal::from(1))))
+        .await
+        .unwrap();
+    assert_eq!(above.len(), 1);
+
+    sqlx::query("DROP TABLE ox_invoices")
+        .execute(db.pool())
+        .await
+        .unwrap();
+}

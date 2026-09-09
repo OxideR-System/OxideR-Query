@@ -14,9 +14,21 @@ categories = ["database"]
 oxider-query-core.workspace = true
 oxider-query-macros.workspace = true
 
+[features]
+# Passthroughs for the extra value kinds, so a downstream crate names one
+# dependency rather than two. Additive only: `chrono` is a default of the core
+# crate and stays on whatever is written here, so it is deliberately not listed
+# - a feature that cannot turn its subject off should not pretend to.
+rust_decimal = ["oxider-query-core/rust_decimal"]
+uuid = ["oxider-query-core/uuid"]
+json = ["oxider-query-core/json"]
+
 [dev-dependencies]
 criterion = "0.5"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+rust_decimal = { version = "1", default-features = false, features = ["std"] }
+uuid = { version = "1", default-features = false, features = ["std", "v4"] }
+serde_json = "1"
 
 [[bench]]
 name = "render"

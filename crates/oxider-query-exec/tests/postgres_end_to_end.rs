@@ -341,3 +341,80 @@ async fn an_instant_binds_to_a_zoned_column_without_losing_its_offset() {
         .unwrap();
     assert_eq!(after_shift.len(), 1, "the instant still matches itself");
 }
+
+/// The strict backend is where binding a decimal, a UUID or a JSON document as
+/// text would be rejected outright rather than quietly coerced: Postgres carries
+/// a type per parameter and `numeric`, `uuid` and `jsonb` are all real types
+/// here. So this is the test that proves the backend hands the driver a typed
+/// value rather than the text `Value` carries.
+#[cfg(all(feature = "rust_decimal", feature = "uuid", feature = "json"))]
+#[tokio::test]
+async fn decimals_uuids_and_json_bind_as_the_native_types() {
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+    use uuid::Uuid;
+
+    #[derive(oxider_query::Entity, sqlx::FromRow, Debug, PartialEq)]
+    #[oxider(table = "ox_invoices")]
+    struct Invoice {
+        id: Uuid,
+        total: Decimal,
+        metadata: serde_json::Value,
+    }
+
+    db_or_skip!(db);
+    sqlx::query("DROP TABLE IF EXISTS ox_invoices")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TABLE ox_invoices (id UUID PRIMARY KEY, total NUMERIC(30, 10) NOT NULL, \
+         metadata JSONB NOT NULL)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let id = Uuid::parse_str("67e55044-10b1-426f-9247-bb680e5fe0c8").unwrap();
+    // Wider than an f64 can hold exactly, which is the point of a decimal.
+    let total = Decimal::from_str("12345678901234.5678901234").unwrap();
+    let metadata = serde_json::json!({ "plan": "pro", "seats": 5 });
+
+    db.execute(
+        Invoice::insert()
+            .set(Invoice::id, id)
+            .set(Invoice::total, total)
+            .set(Invoice::metadata, metadata.clone()),
+    )
+    .await
+    .unwrap();
+
+    let found: Vec<Invoice> = db.fetch_all(Invoice::query()).await.unwrap();
+    assert_eq!(
+        found,
+        vec![Invoice {
+            id,
+            total,
+            metadata
+        }],
+        "every digit survives a NUMERIC column"
+    );
+
+    // Comparing has to bind a numeric too, or the server would refuse it.
+    let above: Vec<Invoice> = db
+        .fetch_all(Invoice::query().filter(Invoice::total.gt(Decimal::from(1))))
+        .await
+        .unwrap();
+    assert_eq!(above.len(), 1);
+
+    let by_id: Vec<Invoice> = db
+        .fetch_all(Invoice::query().filter(Invoice::id.eq(id)))
+        .await
+        .unwrap();
+    assert_eq!(by_id.len(), 1, "a uuid parameter matches a uuid column");
+
+    sqlx::query("DROP TABLE ox_invoices")
+        .execute(db.pool())
+        .await
+        .unwrap();
+}

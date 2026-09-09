@@ -18,6 +18,9 @@ chrono = { version = "0.4", default-features = false, optional = true }
 # someone who asked for neither.
 sqlx-postgres = { version = "0.8", features = ["chrono"], optional = true }
 sqlx-mysql = { version = "0.8", features = ["chrono"], optional = true }
+rust_decimal = { version = "1", default-features = false, features = ["std"], optional = true }
+uuid = { version = "1", default-features = false, features = ["std"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 default = ["sqlite"]
@@ -25,9 +28,24 @@ sqlite = ["sqlx/sqlite"]
 postgres = ["sqlx/postgres", "dep:sqlx-postgres", "dep:chrono"]
 mysql = ["sqlx/mysql", "dep:sqlx-mysql", "dep:chrono"]
 
+# Extra value kinds. Each turns on the matching core feature and, for whichever
+# backends are already enabled, that driver's own support - the `?` keeps a
+# feature from dragging in a backend nobody asked for.
+rust_decimal = [
+    "dep:rust_decimal",
+    "oxider-query-core/rust_decimal",
+    "sqlx-postgres?/rust_decimal",
+    "sqlx-mysql?/rust_decimal",
+]
+uuid = ["dep:uuid", "oxider-query-core/uuid", "sqlx-postgres?/uuid"]
+json = ["dep:serde_json", "oxider-query-core/json", "sqlx-postgres?/json", "sqlx-mysql?/json"]
+
 [dev-dependencies]
 oxider-query.workspace = true
 tokio = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 oxider-query-core = { workspace = true, features = ["chrono"] }
+rust_decimal = { version = "1", default-features = false, features = ["std"] }
+uuid = { version = "1", default-features = false, features = ["std", "v4"] }
+serde_json = "1"

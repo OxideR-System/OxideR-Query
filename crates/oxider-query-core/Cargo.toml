@@ -10,6 +10,13 @@ readme = "../../README.md"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"], optional = true }
+rust_decimal = { version = "1", default-features = false, features = ["std"], optional = true }
+uuid = { version = "1", default-features = false, features = ["std"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 default = ["chrono"]
+# Each of these adds `ToSqlValue` impls and the capability markers for one
+# family of types. `Value` itself carries them all unconditionally, as text, so
+# turning a feature on never changes the shape of the enum a backend matches on.
+json = ["dep:serde_json"]

@@ -297,6 +297,64 @@ Trang đánh số từ 0. Có bản `fetch_page_projected` đọc theo vị trí
 Hai lượt đi về, cố ý.
 `COUNT(*) OVER ()` làm được trong một lượt nhưng khi trang vượt quá cuối thì không trả hàng nào cả, tức là mất luôn tổng số - đúng lúc người gọi cần nó nhất.
 
+## 12.11. Decimal, UUID và JSON
+
+Ba kiểu này nằm sau feature `rust_decimal`, `uuid` và `json`.
+Bật trên `oxider-query` (hoặc `oxider-query-core`) và trên `oxider-query-exec`.
+
+```rust
+#[derive(Entity)]
+#[oxider(table = "invoices")]
+struct Invoice {
+    id: uuid::Uuid,
+    total: rust_decimal::Decimal,
+    metadata: serde_json::Value,
+}
+```
+
+`Decimal` là `Numeric`, nên có đủ số học và `SUM`/`AVG`.
+`Uuid` sắp xếp được, vì Postgres sắp được kiểu `uuid` và keyset paging theo một khóa UUID là chuyện có thật.
+`serde_json::Value` chỉ có `SqlType`: JSON không có thứ tự toàn phần và không có số học, cho `<` hay `SUM` là hứa một thứ mà ba engine không đồng ý với nhau.
+
+Một điều không hiển nhiên: số nguyên không tự nới rộng thành `Decimal`.
+`Invoice::total.mul(2)` không biên dịch được, phải viết `Decimal::from(2)`.
+Đây là cố ý, giống hệt cách `f64` đối xử: danh sách nới rộng được giữ hẹp để suy kiểu còn quyết định được ở những chỗ khác.
+
+### Giá trị đi qua AST dưới dạng text
+
+`Value` mang cả ba dưới dạng text chuẩn hóa, đúng cách nó đang mang date và time.
+Lõi nhờ thế không phụ thuộc thư viện decimal, UUID hay JSON nào, và **hình dạng của enum không đổi theo feature**: bật hay tắt, backend vẫn match trên đúng bấy nhiêu nhánh.
+
+Backend đọc text đó ngược lại trước khi bind. Quy tắc:
+
+**Bind bằng kiểu của engine ở nơi engine có kiểu đó, bind bằng text ở nơi không có.**
+
+| | PostgreSQL | MySQL | SQLite |
+|---|---|---|---|
+| decimal | `NUMERIC` | `DECIMAL` | text |
+| UUID | `uuid` | text | text |
+| JSON | `jsonb` | `JSON` | text |
+
+UUID trên MySQL trông như ngoại lệ nhưng không phải.
+MySQL không có kiểu UUID, nên cột thường là `CHAR(36)`, mà `Uuid` của sqlx mã hóa thành `BINARY(16)`.
+Chọn kiểu đó là lặng lẽ ghi mấy byte không đọc được vào mọi cột `CHAR(36)`.
+Ai thật sự dùng `BINARY(16)` thì bind `Uuid::as_bytes` như blob - đó là lựa chọn của người gọi chứ không phải mặc định của thư viện.
+
+### Decimal trên SQLite: chọn một trong hai
+
+SQLite không có kiểu decimal chính xác.
+Affinity của cột quyết định bạn được gì:
+
+- **`NUMERIC`**: text thành số, so sánh và sắp xếp đúng nghĩa số học.
+  Giá trị rộng quá integer thành `REAL`, tức là float, tức là không chính xác nữa.
+- **`TEXT`**: giữ nguyên từng chữ số, nhưng mọi so sánh là so sánh chuỗi, nên `"9.5" > "10.25"`.
+
+Không có lựa chọn thứ ba. Postgres và MySQL đều có kiểu thật nên không phải chọn.
+Lưu tiền trong SQLite thì nên để đơn vị nhỏ nhất trong `INTEGER`.
+
+Không có gì trong crate này làm việc chuyển đổi đó: decimal rời khỏi đây vẫn là các chữ số của nó.
+Cái chuyển đổi là cột.
+
 ## Bước tiếp theo
 
 [Chương 13](./13-codegen.md) sinh entity từ một schema đã có.

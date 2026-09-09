@@ -211,6 +211,24 @@ let tree: Vec<(User, Vec<Order>)> = group_children(rows, |user| user.id);
 
 Parents keep the order they first appeared in and children the order they arrived, so the query's `ORDER BY` survives the fold. What is *not* checked is whether the projection's width matches the query's own `select` list: that mismatch is a column error from the first row, not a compile error. [Chapter 12](./docs/12-execution.md) says why.
 
+### Decimals, UUIDs and JSON
+
+Behind the `rust_decimal`, `uuid` and `json` features.
+`Value` carries all three as canonical text, the way it already carries dates, so the core crate depends on none of those libraries and the enum a backend matches on does not change shape when a feature is turned on.
+
+The rule for binding them is: **the engine's own type where the engine has one, text where it does not.**
+
+| | PostgreSQL | MySQL | SQLite |
+|---|---|---|---|
+| decimal | `NUMERIC` | `DECIMAL` | text |
+| UUID | `uuid` | text | text |
+| JSON | `jsonb` | `JSON` | text |
+
+UUID on MySQL is the one that looks inconsistent and is not: MySQL has no UUID type, and sqlx's `Uuid` encodes as `BINARY(16)`, which would write unreadable bytes into the `CHAR(36)` column most schemas actually have.
+
+SQLite has no exact decimal at all, so a `NUMERIC` column orders arithmetically but rounds wide values through `REAL`, while a `TEXT` column keeps every digit and compares lexicographically.
+Both halves are pinned by tests rather than glossed over; [chapter 12](./docs/12-execution.md) says which to pick.
+
 ### Counting and paging
 
 ```rust
@@ -268,6 +286,7 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 | `crates/oxider-query/tests/` | SELECT, joins, expressions, aggregates, windows, subqueries, set operations and CTEs, DML, entity mapping, and every example printed in the guide |
 | `crates/oxider-query-exec/tests/sqlite_end_to_end.rs` | the hard cases against a real database: escaped `LIKE` actually matching, emulated null ordering actually ordering, emulated `FILTER` counting the same rows as the native one, recursive CTEs, upserts, `RETURNING`, transaction rollback |
 | `crates/oxider-query-exec/tests/postgres_end_to_end.rs` | the strict backend: temporal parameters typed as the columns actually are, `DISTINCT ON` and native `FILTER` on a server that has them, named parameters, rollback. Skips unless `OXIDER_POSTGRES_URL` is set; `make pg-up test-pg pg-down` |
+| `crates/oxider-query-exec/tests/value_kinds_end_to_end.rs` | decimals, UUIDs and JSON against a database that has a type for none of them: a `NUMERIC` column ordering arithmetically, a `TEXT` column keeping every digit and ordering lexicographically, and both round trips |
 | `crates/oxider-query-exec/tests/projection_and_grouping.rs` | positional projections and the group-by fold: the `select` order deciding which field gets which column, a tuple splitting a flat join, `Option` going `None` only when its whole span is NULL, and the fold keeping the query's order |
 | `crates/oxider-query-exec/tests/mysql_end_to_end.rs` | the dialect that emulates the most: null ordering and aggregate `FILTER` rewritten and still returning the right rows, `ON DUPLICATE KEY UPDATE`, an instant landing in a `DATETIME` unshifted by the session zone, and `RETURNING` and `FULL JOIN` refused before a connection is touched. Skips unless `OXIDER_MYSQL_URL` is set; `make mysql-up test-mysql mysql-down` |
 | `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names |
