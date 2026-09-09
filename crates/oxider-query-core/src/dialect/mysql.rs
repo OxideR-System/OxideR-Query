@@ -54,6 +54,7 @@ impl Dialect for MySql {
         Caps {
             nulls_ordering: false,
             aggregate_filter: false,
+            ordered_set_aggregates: false,
             full_join: false,
             intersect: false,
             except: false,

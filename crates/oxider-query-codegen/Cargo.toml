@@ -12,11 +12,21 @@ readme = "../../README.md"
 sqlx = { workspace = true }
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "chrono"]
 sqlite = ["sqlx/sqlite"]
+postgres = ["sqlx/postgres"]
+
+# These decide whether a column of the matching kind is generated as its real
+# Rust type or left as `String`. They name a type in the output rather than
+# using one here, so nothing is added to the dependency tree - the generated
+# file is what has to have the crate, and that is the caller's manifest.
+chrono = []
+rust_decimal = []
+uuid = []
+json = []
 
 [dev-dependencies]
 tokio = { workspace = true }
-sqlx = { workspace = true, features = ["sqlite"] }
+sqlx = { workspace = true, features = ["sqlite", "postgres"] }
 # Used only to assert the generated source parses as Rust.
 syn = { workspace = true }

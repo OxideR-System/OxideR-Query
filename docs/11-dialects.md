@@ -99,6 +99,7 @@ pub struct Caps {
     pub nulls_ordering: bool,
     pub distinct_on: bool,
     pub aggregate_filter: bool,
+    pub ordered_set_aggregates: bool,
     pub window_functions: bool,
     pub named_windows: bool,
     pub cte: bool,
@@ -125,6 +126,7 @@ Giá trị thực tế:
 | `NULLS FIRST/LAST` native | có | không | không |
 | `DISTINCT ON` | có | không | không |
 | `FILTER` trên aggregate | có | không | có |
+| `WITHIN GROUP` (percentile) | có | không | không |
 | Window function | có | có | có |
 | Mệnh đề `WINDOW` | có | có | có |
 | CTE, CTE đệ quy | có | có | có |
@@ -162,6 +164,7 @@ Bị từ chối:
 | `FULL JOIN` trên MySQL và SQLite | không có cách viết lại nào tương đương và rẻ |
 | `DISTINCT ON` ngoài PostgreSQL | ngữ nghĩa "dòng đầu mỗi nhóm" không tái tạo được bằng `DISTINCT` |
 | `STDDEV`, `VARIANCE`, `CORR` trên SQLite | giả lập bằng số học cho kết quả sai lệch |
+| `WITHIN GROUP` ngoài PostgreSQL | trung vị là tính chất của cả nhóm đã sắp, không biểu thức trên một hàng nào dựng lại được |
 | `FOR UPDATE` trên SQLite | không có khái niệm khóa dòng |
 | `RETURNING` trên MySQL | không tồn tại |
 | `DO NOTHING` trên MySQL | không có tương đương |

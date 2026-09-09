@@ -2,7 +2,7 @@
 
 Type-safe, multi-dialect SQL query builder for Rust, inspired by Java's [QueryDSL](https://github.com/querydsl/querydsl) but pushing type-safety further than a JVM can.
 
-> **The builder targets PostgreSQL, MySQL and SQLite. The optional execution layer supports PostgreSQL and SQLite; schema codegen is SQLite only.** On MySQL you build and render here, then bind the `(sql, params)` pair with your own driver rather than using the `Db` handle. [Chapter 12](./docs/12-execution.md) shows what the handle does, so you can judge how much that costs you.
+> **The builder, the optional execution layer and schema codegen all target PostgreSQL and SQLite; codegen does not cover MySQL yet.** [Chapter 12](./docs/12-execution.md) covers the execution handle; [chapter 13](./docs/13-codegen.md) covers codegen.
 
 > Status: 0.1.0, in active development. The full SELECT surface (every join, aliasing, `DISTINCT ON`, null ordering, row locking, set operations, CTEs including recursive ones, window functions, correlated subqueries), full DML (multi-row insert, insert-select, upsert, `RETURNING`, update-from, delete-using), and roughly 200 operators rendered for all three dialects. Pre-1.0, so the API tracks latest stable Rust and may change.
 
@@ -170,7 +170,7 @@ Chained `AND`/`OR` flatten into one many-operand node, so a thousand dynamic fil
 
 ## Running queries
 
-The core builder is execution-agnostic. The optional `oxider-query-exec` crate provides one `Db` handle wrapping a sqlx pool: it renders with the backend's own dialect, binds the parameters and runs the statement, mapping rows into any `sqlx::FromRow` type.
+The core builder is execution-agnostic. The optional `oxider-query-exec` crate provides one `Db` handle wrapping a sqlx pool: it renders with the backend's own dialect, binds the parameters and runs the statement, mapping rows into any `sqlx::FromRow` type. One backend per feature: `sqlite`, `postgres`, `mysql`.
 
 ```rust
 #[derive(Entity, sqlx::FromRow)]
@@ -187,6 +187,75 @@ let adults: Vec<User> = db
 ```
 
 There is no `.to_sql(&Sqlite)` at the call site: the handle picks the dialect, so pointing at another database is a one-line change of the handle's type and touches no query code.
+
+### Projections and one-to-many
+
+`fetch_all` maps rows through `sqlx::FromRow`, which matches by column name and so needs an alias on every expression. `#[derive(Projection)]` matches by position instead: field *n* reads column *n* of the struct's span, following the `select` list.
+
+```rust
+#[derive(Entity, Projection)]
+#[oxider(table = "users")]
+struct User { id: i64, name: String, age: i64 }
+
+let users: Vec<User> = db
+    .fetch_all_projected(User::query().select((User::id, User::name, User::age)))
+    .await?;
+```
+
+Because each projection knows its own width, a tuple of them splits one flat join into several structs, and `Option<P>` is `None` exactly when its whole span is NULL - what a `LEFT JOIN` that matched nothing produces. `group_children` then folds that back into the shape it describes, without a second query per parent:
+
+```rust
+let rows: Vec<(User, Option<Order>)> = db.fetch_all_projected(query).await?;
+let tree: Vec<(User, Vec<Order>)> = group_children(rows, |user| user.id);
+```
+
+Parents keep the order they first appeared in and children the order they arrived, so the query's `ORDER BY` survives the fold. What is *not* checked is whether the projection's width matches the query's own `select` list: that mismatch is a column error from the first row, not a compile error. [Chapter 12](./docs/12-execution.md) says why.
+
+### Decimals, UUIDs and JSON
+
+Behind the `rust_decimal`, `uuid` and `json` features.
+`Value` carries all three as canonical text, the way it already carries dates, so the core crate depends on none of those libraries and the enum a backend matches on does not change shape when a feature is turned on.
+
+The rule for binding them is: **the engine's own type where the engine has one, text where it does not.**
+
+| | PostgreSQL | MySQL | SQLite |
+|---|---|---|---|
+| decimal | `NUMERIC` | `DECIMAL` | text |
+| UUID | `uuid` | text | text |
+| JSON | `jsonb` | `JSON` | text |
+
+UUID on MySQL is the one that looks inconsistent and is not: MySQL has no UUID type, and sqlx's `Uuid` encodes as `BINARY(16)`, which would write unreadable bytes into the `CHAR(36)` column most schemas actually have.
+
+SQLite has no exact decimal at all, so a `NUMERIC` column orders arithmetically but rounds wide values through `REAL`, while a `TEXT` column keeps every digit and compares lexicographically.
+Both halves are pinned by tests rather than glossed over; [chapter 12](./docs/12-execution.md) says which to pick.
+
+### Walking a result set without collecting it
+
+`fetch_all` builds a `Vec`. For an export, a migration, or a report over a whole table, that `Vec` is the problem.
+
+```rust
+let mut total = 0i64;
+let rows = db.for_each_row(Order::query(), |order: Order| {
+    total += order.amount;
+    Ok(())
+}).await?;
+```
+
+Each row goes to the closure as it arrives and is dropped after. Returns how many rows went past; an error from the closure stops the walk there and becomes the result, so giving up early costs nothing. `for_each_row_projected` is the positional form, and both exist on `Tx`.
+
+It is a fold rather than a `Stream` because a `Stream` would have to own the rendered SQL and borrow from it at once, which needs a self-referential type or a generator macro from another crate - neither worth it when the reason to stream is to avoid holding the data. Driving sqlx over `pool()` gets a real `Stream` for anyone who needs to compose one.
+
+### Counting and paging
+
+```rust
+let total: u64 = db.fetch_count(User::query().filter(User::age.ge(18))).await?;
+
+let page: Page<User> = db.fetch_page(User::query().order_by(User::id.asc()), 1, 20).await?;
+page.total_pages();
+page.has_next();
+```
+
+`count()` wraps the query - `SELECT COUNT(*) FROM (...) AS "oxider_count"` - rather than swapping its projection for `COUNT(*)`, so the answer is right for `DISTINCT`, `GROUP BY` and set operations, where the number of result rows is not the number of rows the FROM clause produces. `LIMIT` and `OFFSET` are dropped, since counting exists to say how many pages there are. So is `ORDER BY`, except under `DISTINCT ON`, which PostgreSQL requires it to match.
 
 `db.transaction(async |tx| { ... })` scopes a transaction to a closure, committing on `Ok` and rolling back on `Err`, so a commit is never forgotten. `db.begin()` is the manual form.
 
@@ -207,8 +276,8 @@ There is no `.to_sql(&Sqlite)` at the call site: the handle picks the dialect, s
 |-------|------|
 | `oxider-query-core` | AST, typed expression layer, builders, `Dialect` trait, renderer. No DB, no macros. |
 | `oxider-query-macros` | `#[derive(Entity)]` generating the query metamodel. |
-| `oxider-query-exec` | Optional async execution over sqlx (PostgreSQL and SQLite). Binds params, maps rows. |
-| `oxider-query-codegen` | Optional schema introspection: generate `Entity` structs from an existing database (SQLite today). |
+| `oxider-query-exec` | Optional async execution over sqlx (PostgreSQL, MySQL and SQLite). Binds params, maps rows. |
+| `oxider-query-codegen` | Optional schema introspection: generate `Entity` structs from an existing database (SQLite and PostgreSQL). |
 | `oxider-query` | Facade crate that downstream users depend on. |
 
 ## Documentation
@@ -233,7 +302,11 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 | `crates/oxider-query/tests/` | SELECT, joins, expressions, aggregates, windows, subqueries, set operations and CTEs, DML, entity mapping, and every example printed in the guide |
 | `crates/oxider-query-exec/tests/sqlite_end_to_end.rs` | the hard cases against a real database: escaped `LIKE` actually matching, emulated null ordering actually ordering, emulated `FILTER` counting the same rows as the native one, recursive CTEs, upserts, `RETURNING`, transaction rollback |
 | `crates/oxider-query-exec/tests/postgres_end_to_end.rs` | the strict backend: temporal parameters typed as the columns actually are, `DISTINCT ON` and native `FILTER` on a server that has them, named parameters, rollback. Skips unless `OXIDER_POSTGRES_URL` is set; `make pg-up test-pg pg-down` |
-| `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names |
+| `crates/oxider-query-exec/tests/streaming.rs` | the row-by-row walk: order kept, the count right, an error from the closure stopping it on the third row of a thousand, and a transaction walking its own uncommitted writes |
+| `crates/oxider-query-exec/tests/value_kinds_end_to_end.rs` | decimals, UUIDs and JSON against a database that has a type for none of them: a `NUMERIC` column ordering arithmetically, a `TEXT` column keeping every digit and ordering lexicographically, and both round trips |
+| `crates/oxider-query-exec/tests/projection_and_grouping.rs` | positional projections and the group-by fold: the `select` order deciding which field gets which column, a tuple splitting a flat join, `Option` going `None` only when its whole span is NULL, and the fold keeping the query's order |
+| `crates/oxider-query-exec/tests/mysql_end_to_end.rs` | the dialect that emulates the most: null ordering and aggregate `FILTER` rewritten and still returning the right rows, `ON DUPLICATE KEY UPDATE`, an instant landing in a `DATETIME` unshifted by the session zone, and `RETURNING` and `FULL JOIN` refused before a connection is touched. Skips unless `OXIDER_MYSQL_URL` is set; `make mysql-up test-mysql mysql-down` |
+| `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names, and against a real PostgreSQL: every column type, composite foreign keys paired by position, and a table name written to close the attribute and open a second item |
 | `crates/oxider-query/tests/named_parameter_scenarios.rs` | named parameters: rebinding, an unbound name refused, resolution inside a correlated subquery |
 | `crates/oxider-query/tests/dynamic_query_depth_scenarios.rs` | flattened `AND`/`OR` chains, and the depth limit refusing rather than overflowing |
 | doc tests | each advertised compile-time guarantee, as `compile_fail` |
@@ -248,6 +321,7 @@ make test                     # tests only
 make bench                    # render-throughput microbench (criterion)
 make release VERSION=0.1.2    # bump, verify, tag, push, publish a GitHub release
 make pg-up test-pg pg-down    # PostgreSQL end-to-end against a throwaway server
+make mysql-up test-mysql mysql-down   # the same, for MySQL
 ```
 
 The underlying commands, for anyone who would rather not use `make`:
@@ -262,9 +336,9 @@ cargo bench -p oxider-query
 
 ## Roadmap
 
-See `plans/260905-2058-querydsl-full-port/plan.md`.
+See `plans/260909-1018-rust-first-roadmap/plan.md`. QueryDSL is the architectural reference, not the finish line: anything on its feature list that no Rust user asks for is off the roadmap rather than left pending.
 
-Remaining: the MySQL execution backend, PostgreSQL and MySQL codegen backends, `#[derive(Projection)]`, and a GroupBy transformer.
+Next up: `#[derive(Projection)]` and a GroupBy transformer, `fetch_count` and paged results, and `rust_decimal`/`uuid`/`json` parameter types.
 
 ## License
 

@@ -41,7 +41,7 @@ async fn generates_structs_for_all_tables() {
         "CREATE TABLE order_items (id INTEGER PRIMARY KEY, price REAL NOT NULL)",
     ])
     .await;
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
 
@@ -76,7 +76,7 @@ async fn a_column_named_after_a_rust_keyword_becomes_a_raw_identifier() {
             match TEXT, \
             ref TEXT NOT NULL)"])
     .await;
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
 
@@ -104,7 +104,7 @@ async fn a_column_that_is_not_a_rust_identifier_is_renamed_and_mapped_back() {
             \"total-count\" INTEGER NOT NULL, \
             \"2fa enabled\" BOOLEAN NOT NULL)"])
     .await;
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
 
@@ -125,7 +125,7 @@ pub struct Metrics {
 #[tokio::test]
 async fn a_table_whose_name_is_not_a_rust_type_name_still_generates() {
     let pool = database(&["CREATE TABLE \"user-sessions\" (id INTEGER PRIMARY KEY)"]).await;
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
 
@@ -152,7 +152,7 @@ async fn declared_types_map_by_sqlite_affinity_and_nullability_follows_not_null(
             untyped, \
             amount DECIMAL(10, 2))"])
     .await;
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
 
@@ -202,7 +202,7 @@ async fn a_column_name_cannot_inject_items_into_the_generated_source() {
     )])
     .await;
 
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
 
@@ -217,7 +217,7 @@ async fn a_table_name_with_a_quote_is_introspected_and_escaped() {
     // introspection failed outright with a syntax error from SQLite.
     let pool = database(&[r#"CREATE TABLE "ev""il" (id INTEGER PRIMARY KEY)"#]).await;
 
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
 
@@ -237,7 +237,7 @@ pub struct EvIl {
 #[tokio::test]
 async fn a_database_with_no_user_tables_generates_nothing() {
     let pool = database(&[]).await;
-    let source = oxider_query_codegen::generate_entities(&pool)
+    let source = oxider_query_codegen::sqlite::generate_entities(&pool)
         .await
         .unwrap();
     assert_eq!(source, "");

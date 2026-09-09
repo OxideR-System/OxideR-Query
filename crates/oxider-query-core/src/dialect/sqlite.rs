@@ -64,6 +64,7 @@ impl Dialect for Sqlite {
     fn caps(&self) -> Caps {
         Caps {
             nulls_ordering: false,
+            ordered_set_aggregates: false,
             named_windows: true,
             returning: true,
             update_from: true,

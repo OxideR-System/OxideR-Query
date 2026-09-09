@@ -15,14 +15,17 @@
 //! same query methods and is finished with [`Tx::commit`] or [`Tx::rollback`].
 //!
 //! Backends are feature-gated via the [`Backend`] trait: SQLite (default
-//! feature `sqlite`, handle alias [`SqliteDb`]) and PostgreSQL (feature
-//! `postgres`, alias [`PostgresDb`]). MySQL slots in by implementing
-//! [`Backend`] for its sqlx `Database`, with no change to [`Db`] or [`Tx`].
+//! feature `sqlite`, handle alias [`SqliteDb`]), PostgreSQL (feature
+//! `postgres`, alias [`PostgresDb`]) and MySQL (feature `mysql`, alias
+//! [`MySqlDb`]). Each is one impl of [`Backend`] for its sqlx `Database`, with
+//! no change to [`Db`] or [`Tx`].
 //!
-//! The two differ in exactly one place, parameter encoding, and only for
-//! temporal types: SQLite types a column by the value it is handed, while
+//! They differ in exactly one place, parameter encoding, and only for temporal
+//! types. SQLite types a column by the value it is handed, so text is enough.
 //! PostgreSQL carries a type per bound parameter and refuses text where a
-//! `date` belongs. See the `postgres` module for what that costs.
+//! `date` belongs. MySQL takes text but has no datetime literal that carries an
+//! offset, and no zoned column type to put one in. See each backend module for
+//! what that costs.
 //!
 //! ```no_run
 //! # async fn demo() -> oxider_query_exec::Result<()> {
@@ -48,8 +51,14 @@ use sqlx::Database;
 mod db;
 mod error;
 mod ops;
+mod page;
+mod projection;
+mod scalars;
+mod transform;
 mod tx;
 
+#[cfg(feature = "mysql")]
+mod mysql;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "sqlite")]
@@ -57,6 +66,9 @@ mod sqlite;
 
 pub use db::Db;
 pub use error::{Error, Result};
+pub use page::Page;
+pub use projection::Projection;
+pub use transform::group_children;
 pub use tx::Tx;
 
 /// A database backend: the SQL dialect to render for, plus how to bind rendered
@@ -93,3 +105,7 @@ pub type SqliteDb = Db<sqlx::Sqlite>;
 /// A [`Db`] handle for PostgreSQL.
 #[cfg(feature = "postgres")]
 pub type PostgresDb = Db<sqlx::Postgres>;
+
+/// A [`Db`] handle for MySQL.
+#[cfg(feature = "mysql")]
+pub type MySqlDb = Db<sqlx::MySql>;

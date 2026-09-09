@@ -61,6 +61,13 @@ pub struct Caps {
     pub distinct_on: bool,
     /// `FILTER (WHERE ...)` on aggregates.
     pub aggregate_filter: bool,
+    /// Ordered-set aggregates: `PERCENTILE_CONT(f) WITHIN GROUP (ORDER BY x)`.
+    ///
+    /// Standard SQL, and among the built-in dialects PostgreSQL alone. Unlike
+    /// most entries here it has no emulation: a median is a property of the
+    /// whole sorted group, so no expression over one row can stand in for it,
+    /// and a dialect without the clause refuses rather than approximates.
+    pub ordered_set_aggregates: bool,
     /// Window functions and the `OVER` clause.
     pub window_functions: bool,
     /// `WINDOW` clause declaring named windows.
@@ -115,6 +122,7 @@ impl Caps {
         nulls_ordering: true,
         distinct_on: false,
         aggregate_filter: true,
+        ordered_set_aggregates: true,
         window_functions: true,
         named_windows: true,
         cte: true,

@@ -37,6 +37,15 @@ pub enum Value {
     Time(String),
     /// Timestamp, as `YYYY-MM-DD HH:MM:SS[.fff]`.
     DateTime(String),
+    /// Exact decimal, as the digits and sign that were written.
+    ///
+    /// Text rather than a float, because the point of a decimal is the digits;
+    /// widening to `f64` on the way through would defeat it.
+    Decimal(String),
+    /// UUID, as the hyphenated lowercase form.
+    Uuid(String),
+    /// JSON document, as compact serialised text.
+    Json(String),
     /// SQL NULL.
     Null,
 }
@@ -135,6 +144,12 @@ impl<T: Into<Value>> From<Option<T>> for Value {
 /// The base capability, matching QueryDSL's `SimpleExpression`: equality,
 /// null tests, `IN`, and use as a projected column. Every type that can be
 /// bound as a value is one, plus wrapper types the value layer understands.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SQL column type",
+    note = "columns hold the primitive types, `String`, `Vec<u8>`, `Option<T>` of any \
+            of those, and the date, decimal, UUID and JSON types their features enable",
+    note = "a custom type needs `impl SqlType` and `impl ToSqlValue` saying how it binds"
+)]
 pub trait SqlType {}
 
 /// Marker for Rust types whose expressions support ordering comparisons
@@ -142,14 +157,31 @@ pub trait SqlType {}
 ///
 /// Matches QueryDSL's `ComparableExpression`. Numbers, strings and temporals
 /// qualify; booleans and byte strings do not.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no ordering in SQL",
+    note = "`<`, `>`, `BETWEEN`, `ORDER BY`, `MIN` and `MAX` need a type the engines \
+            agree how to sort: numbers, strings, dates, times and UUIDs",
+    note = "booleans, byte strings and JSON are comparable for equality only"
+)]
 pub trait Orderable: SqlType {}
 
 /// Marker for numeric Rust types, gating arithmetic and the arithmetic
 /// aggregates `SUM`/`AVG`. Matches QueryDSL's `NumberExpression`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a numeric SQL type",
+    note = "arithmetic and the `SUM`, `AVG`, `STDDEV` and `VARIANCE` aggregates are \
+            offered on numeric columns only",
+    note = "counting rows of any type is `count()`, or `count_all()` for the whole group"
+)]
 pub trait Numeric: Orderable {}
 
 /// Marker for date/time Rust types, gating the date-part extraction and date
 /// arithmetic operators. Matches QueryDSL's `TemporalExpression`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a date or time SQL type",
+    note = "extracting a year or adding days needs a date, time or timestamp column",
+    note = "the temporal types arrive with the `chrono` feature, which is on by default"
+)]
 pub trait Temporal: Orderable {}
 
 macro_rules! mark {
@@ -197,6 +229,70 @@ pub mod formats {
     /// zoned timestamp from a format whose offset is plain text, so a literal
     /// here would be writable and not readable.
     pub const DATE_TIME_UTC: &str = "%Y-%m-%d %H:%M:%S%.f%:z";
+}
+
+/// Exact decimal support.
+///
+/// Like the temporal types, the value crosses the AST as text: [`Value`] must
+/// not depend on a decimal library, and the digits are exactly what an exact
+/// decimal is for. The backend reads it back before binding.
+///
+/// `rust_decimal` covers `NUMERIC(p, s)` for `p` up to 28, which is every
+/// money column and nearly every other one. `bigdecimal` is not wired up yet;
+/// when it is, it will be a second impl writing into the same variant rather
+/// than a choice between the two.
+#[cfg(feature = "rust_decimal")]
+mod decimal {
+    use super::{Numeric, Orderable, SqlType, ToSqlValue, Value};
+    use rust_decimal::Decimal;
+
+    impl ToSqlValue for Decimal {
+        fn to_sql_value(&self) -> Value {
+            Value::Decimal(self.to_string())
+        }
+    }
+
+    impl SqlType for Decimal {}
+    impl Orderable for Decimal {}
+    impl Numeric for Decimal {}
+}
+
+/// UUID support.
+///
+/// Ordering is offered because PostgreSQL orders `uuid` columns and paging by
+/// one is a real pattern; arithmetic is not, because there is none.
+#[cfg(feature = "uuid")]
+mod identifier {
+    use super::{Orderable, SqlType, ToSqlValue, Value};
+    use uuid::Uuid;
+
+    impl ToSqlValue for Uuid {
+        fn to_sql_value(&self) -> Value {
+            Value::Uuid(self.to_string())
+        }
+    }
+
+    impl SqlType for Uuid {}
+    impl Orderable for Uuid {}
+}
+
+/// JSON support.
+///
+/// [`SqlType`] only: a JSON document has no total order and no arithmetic, so
+/// offering `<` or `SUM` on one would be offering something no engine agrees
+/// about.
+#[cfg(feature = "json")]
+mod json {
+    use super::{SqlType, ToSqlValue, Value};
+    use serde_json::Value as Json;
+
+    impl ToSqlValue for Json {
+        fn to_sql_value(&self) -> Value {
+            Value::Json(self.to_string())
+        }
+    }
+
+    impl SqlType for Json {}
 }
 
 #[cfg(feature = "chrono")]

@@ -16,6 +16,7 @@
 //! keeping only `S` would let a correlated reference escape unchecked.
 
 use crate::ast::node::{Node, TableRef};
+use crate::ast::operator::Operator;
 use crate::ast::query::{
     Cte, Distinct, JoinAst, JoinKind, Lock, LockMode, LockWait, SelectAst, SetOp, Source,
 };
@@ -570,7 +571,60 @@ impl<S, F, L> Select<S, F, L> {
     pub fn as_subquery<T>(self) -> Subquery<F, T> {
         Subquery::new(self.ast)
     }
+
+    /// A query counting the rows this one would return.
+    ///
+    /// Renders as `SELECT COUNT(*) FROM (<this query>) AS "oxider_count"`.
+    /// Wrapping rather than swapping the projection for `COUNT(*)` is what makes
+    /// the answer right for `DISTINCT`, `GROUP BY` and set operations, where the
+    /// number of result rows is not the number of rows the FROM clause produces.
+    ///
+    /// `LIMIT` and `OFFSET` are dropped: they choose a page, and the point of
+    /// counting is to learn how many pages there are.
+    ///
+    /// `ORDER BY` is dropped too, since sorting cannot change a count - except
+    /// when `DISTINCT ON` is in play, because PostgreSQL requires that clause's
+    /// expressions to match the leading `ORDER BY` terms and rejects the query
+    /// otherwise.
+    ///
+    /// The result is one row of one column, so read it with
+    /// [`fetch_one`](crate::Renderable) into a single-field projection.
+    pub fn count(self) -> Select<Nil> {
+        let mut inner = self.ast;
+        inner.limit = None;
+        inner.offset = None;
+        if !matches!(inner.distinct, Distinct::On(_)) {
+            inner.order.clear();
+        }
+
+        let ast = SelectAst {
+            columns: vec![Node::Aggregate {
+                func: Operator::CountAll,
+                distinct: false,
+                args: Vec::new(),
+                order_by: Vec::new(),
+                filter: None,
+            }],
+            from: vec![Source::Derived {
+                query: Box::new(inner),
+                alias: COUNT_ALIAS,
+            }],
+            ..Default::default()
+        };
+        Select {
+            ast,
+            bindings: self.bindings,
+            _marker: PhantomData,
+        }
+    }
 }
+
+/// The alias the counting subquery gets.
+///
+/// MySQL requires a derived table to be named, and the name has to come from
+/// somewhere; a constant keeps it out of the caller's way. Nothing refers to it,
+/// so a collision with a real table would not matter.
+const COUNT_ALIAS: &str = "oxider_count";
 
 impl<S, F, L> Renderable for Select<S, F, L> {
     fn render_with(self, dialect: &dyn Dialect) -> RenderResult<Rendered> {

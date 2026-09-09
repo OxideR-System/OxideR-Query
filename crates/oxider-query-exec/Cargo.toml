@@ -11,16 +11,38 @@ readme = "../../README.md"
 [dependencies]
 oxider-query-core.workspace = true
 sqlx = { workspace = true }
+# Only for the `Stream` trait, to poll a row stream by hand in the
+# `for_each_row` fold. sqlx already pulls this in, and taking `futures-util`
+# instead would add a large crate for one call to `next`.
+futures-core = { version = "0.3", default-features = false }
 chrono = { version = "0.4", default-features = false, optional = true }
-# chrono support is enabled on the Postgres driver itself rather than through
-# `sqlx/chrono`, which fans the feature out to every backend and so drags
-# sqlx-mysql, and its dependencies, into the lock file for nothing.
+# chrono support is enabled on each driver crate itself rather than through
+# `sqlx/chrono`, which fans the feature out to every backend: enabling it for
+# Postgres alone would drag sqlx-mysql, and its dependencies, into the build of
+# someone who asked for neither.
 sqlx-postgres = { version = "0.8", features = ["chrono"], optional = true }
+sqlx-mysql = { version = "0.8", features = ["chrono"], optional = true }
+rust_decimal = { version = "1", default-features = false, features = ["std"], optional = true }
+uuid = { version = "1", default-features = false, features = ["std"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 default = ["sqlite"]
 sqlite = ["sqlx/sqlite"]
 postgres = ["sqlx/postgres", "dep:sqlx-postgres", "dep:chrono"]
+mysql = ["sqlx/mysql", "dep:sqlx-mysql", "dep:chrono"]
+
+# Extra value kinds. Each turns on the matching core feature and, for whichever
+# backends are already enabled, that driver's own support - the `?` keeps a
+# feature from dragging in a backend nobody asked for.
+rust_decimal = [
+    "dep:rust_decimal",
+    "oxider-query-core/rust_decimal",
+    "sqlx-postgres?/rust_decimal",
+    "sqlx-mysql?/rust_decimal",
+]
+uuid = ["dep:uuid", "oxider-query-core/uuid", "sqlx-postgres?/uuid"]
+json = ["dep:serde_json", "oxider-query-core/json", "sqlx-postgres?/json", "sqlx-mysql?/json"]
 
 [dev-dependencies]
 oxider-query.workspace = true
@@ -28,3 +50,6 @@ tokio = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 oxider-query-core = { workspace = true, features = ["chrono"] }
+rust_decimal = { version = "1", default-features = false, features = ["std"] }
+uuid = { version = "1", default-features = false, features = ["std", "v4"] }
+serde_json = "1"

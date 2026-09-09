@@ -20,6 +20,8 @@ sidebar_position: 6
 | `x.variance()`, `x.var_pop()` | `T: Numeric` | `f64` |
 | `bool_and(x)`, `bool_or(x)` | `T = bool` | `bool` |
 | `group_concat(x, sep)` | `T = String` | `String` |
+| `percentile_cont(f).within_group(x)` | `T: Numeric` | `f64` |
+| `percentile_disc(f).within_group(x)` | `T: Orderable` | `T` |
 
 ```rust
 Order::query()
@@ -152,7 +154,55 @@ query.to_sql(&Sqlite).unwrap_err(); // UnsupportedOperator { operator: StdDev, .
 Nguyên tắc chung: giả lập khi kết quả giống hệt, từ chối khi không.
 Một câu SQL "gần đúng" chạy được nhưng trả sai số liệu khó phát hiện hơn nhiều so với một lỗi ngay lúc render.
 
-## 6.8. Aggregate qua join
+## 6.8. Percentile: aggregate sắp xếp cả nhóm
+
+Hai hàm percentile không sắp xếp đối số, chúng sắp xếp cả nhóm, và SQL viết phần sắp xếp đó **sau** lời gọi chứ không phải bên trong:
+
+```rust
+Order::query()
+    .select(percentile_cont(0.5).within_group(Order::total).alias("median"))
+    .group_by(Order::user_id);
+```
+
+```sql
+SELECT PERCENTILE_CONT($1) WITHIN GROUP (ORDER BY "orders"."total" ASC) AS "median"
+FROM "orders" GROUP BY "orders"."user_id"
+```
+
+`percentile_cont(0.5)` một mình chưa phải một lời gọi hoàn chỉnh trong bất kỳ engine nào: phân số nói đi bao xa, `WITHIN GROUP` nói đi qua cái gì, và SQL đòi cả hai.
+Nên `percentile_cont` trả về một builder chứ không phải `Aggregate`, và bản viết dở không biên dịch được thay vì hỏng ở database.
+
+Khác nhau giữa hai hàm nằm ở chỗ có nội suy hay không, và điều đó quyết định luôn kiểu trả về:
+
+| | Trả về | Trên các tuổi 10, 20, 30, 40 |
+|---|---|---|
+| `percentile_cont(0.5)` | `f64` | `25.0` - nằm giữa hai hàng, không hàng nào có |
+| `percentile_disc(0.5)` | kiểu của cột | `20` - đúng giá trị đang nằm trong nhóm |
+
+Vì `percentile_disc` trả về một giá trị có thật trong nhóm nên nó giữ kiểu của cột được sắp: percentile của một cột ngày trả về một ngày.
+`percentile_cont` nội suy nên luôn là `f64`, và chỉ nhận cột `Numeric` - nội suy giữa hai cái tên là chuyện vô nghĩa.
+
+`within_group_desc` sắp giảm dần. Với percentile liên tục nó bằng đúng `1 - f` sắp tăng dần, nhưng với percentile rời rạc thì không phải lúc nào cũng vậy, nên cả hai đều có.
+
+Còn `FILTER` thì đứng sau `WITHIN GROUP`, ngược với thứ tự viết trong Rust:
+
+```rust
+percentile_cont(0.5)
+    .within_group(Order::total)
+    .filter_where(Order::status.eq("paid"))
+// PERCENTILE_CONT($1) WITHIN GROUP (ORDER BY "orders"."total" ASC)
+//   FILTER (WHERE "orders"."status" = $2)
+```
+
+**Chỉ PostgreSQL.** MySQL và SQLite không có ordered-set aggregate, và cũng không có gì để giả lập: trung vị là tính chất của cả nhóm đã sắp, không biểu thức trên một hàng nào dựng lại được.
+Theo đúng nguyên tắc ở mục 6.7, cả hai từ chối ngay lúc render.
+
+```rust
+let query = Order::query().select(percentile_cont(0.5).within_group(Order::total));
+query.to_sql(&MySql).unwrap_err();  // UnsupportedFeature { feature: "an ordered-set aggregate (WITHIN GROUP)", .. }
+```
+
+## 6.9. Aggregate qua join
 
 ```rust
 User::query()

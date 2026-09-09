@@ -8,7 +8,7 @@
 
 use crate::ast::node::Node;
 use crate::ast::operator::Operator;
-use crate::ast::query::OrderAst;
+use crate::ast::query::{OrderAst, OrderDir};
 use crate::source::{Concat, Nil};
 use crate::typed::expr::{Expr, IntoExpr, Order, Predicate};
 use crate::typed::ops_compare::Merge;
@@ -209,6 +209,116 @@ where
             Node::Param(crate::value::Value::Text(separator.as_ref().to_string())),
         ],
     )
+}
+
+/// `PERCENTILE_CONT(fraction)`, waiting for the group it sorts.
+///
+/// `PERCENTILE_CONT(0.5)` is not a complete call in any engine: the fraction
+/// says how far through to look and `WITHIN GROUP (ORDER BY ...)` says what to
+/// look through, and SQL requires both. Returning a builder rather than an
+/// [`Aggregate`] is what makes the half-written form fail to compile instead of
+/// failing at the database.
+pub struct PercentileCont(Node);
+
+impl PercentileCont {
+    /// Sort the group ascending and interpolate the percentile from it.
+    pub fn within_group<T, X>(self, sorted: X) -> Aggregate<X::Sources, f64>
+    where
+        T: SqlType + Numeric,
+        X: IntoExpr<T>,
+    {
+        percentile(Operator::PercentileCont, self.0, sorted, OrderDir::Asc)
+    }
+
+    /// The same, sorting the group descending.
+    ///
+    /// For a continuous percentile this is the ascending call at `1 - fraction`,
+    /// so reach for it when reading the query matters more than the arithmetic.
+    pub fn within_group_desc<T, X>(self, sorted: X) -> Aggregate<X::Sources, f64>
+    where
+        T: SqlType + Numeric,
+        X: IntoExpr<T>,
+    {
+        percentile(Operator::PercentileCont, self.0, sorted, OrderDir::Desc)
+    }
+}
+
+/// `PERCENTILE_DISC(fraction)`, waiting for the group it sorts.
+///
+/// Unlike [`PercentileCont`] this returns one of the values that is actually in
+/// the group, so the result keeps the sorted column's type.
+pub struct PercentileDisc(Node);
+
+impl PercentileDisc {
+    /// Sort the group ascending and take the first value at or past the
+    /// fraction.
+    pub fn within_group<T, X>(self, sorted: X) -> Aggregate<X::Sources, T>
+    where
+        T: SqlType + Orderable,
+        X: IntoExpr<T>,
+    {
+        percentile(Operator::PercentileDisc, self.0, sorted, OrderDir::Asc)
+    }
+
+    /// The same, sorting the group descending.
+    pub fn within_group_desc<T, X>(self, sorted: X) -> Aggregate<X::Sources, T>
+    where
+        T: SqlType + Orderable,
+        X: IntoExpr<T>,
+    {
+        percentile(Operator::PercentileDisc, self.0, sorted, OrderDir::Desc)
+    }
+}
+
+/// Assemble an ordered-set aggregate from its fraction and its sort.
+///
+/// The sort is one term because a percentile reads a single ordering; NULLs
+/// need no placement here, since an aggregate skips them either way.
+fn percentile<S, T, R, X>(
+    func: Operator,
+    fraction: Node,
+    sorted: X,
+    dir: OrderDir,
+) -> Aggregate<S, R>
+where
+    X: IntoExpr<T, Sources = S>,
+{
+    Aggregate {
+        func,
+        distinct: false,
+        args: vec![fraction],
+        order_by: vec![OrderAst::new(sorted.into_expr_node(), dir)],
+        filter: None,
+        _marker: PhantomData,
+    }
+}
+
+/// `PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY sorted)` - the value that
+/// far through the sorted group, interpolating between the two rows it falls
+/// between.
+///
+/// ```ignore
+/// // The median salary in each department.
+/// Employee::query()
+///     .group_by(Employee::department)
+///     .select(percentile_cont(0.5).within_group(Employee::salary))
+/// ```
+///
+/// PostgreSQL only among the built-in dialects. MySQL and SQLite have no
+/// ordered-set aggregate and nothing to emulate one with, so both refuse while
+/// rendering rather than at the database.
+pub fn percentile_cont(fraction: f64) -> PercentileCont {
+    PercentileCont(Node::Param(crate::value::Value::Real(fraction)))
+}
+
+/// `PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY sorted)` - the first value
+/// at or past that fraction, returned as it stands in the group rather than
+/// interpolated.
+///
+/// Use this where a value between two rows would be meaningless, such as a
+/// percentile over dates or names, and [`percentile_cont`] where it would not.
+pub fn percentile_disc(fraction: f64) -> PercentileDisc {
+    PercentileDisc(Node::Param(crate::value::Value::Real(fraction)))
 }
 
 impl<E, T: SqlType> AggOps<T> for crate::typed::Column<E, T> {}

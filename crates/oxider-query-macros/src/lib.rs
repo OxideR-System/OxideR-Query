@@ -11,11 +11,11 @@
 //! without generated files in the tree.
 
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{
-    parse_macro_input, Data, DeriveInput, Field, Fields, GenericArgument, LitStr, PathArguments,
-    Type,
-};
+use syn::{parse_macro_input, DeriveInput};
+
+mod attributes;
+mod entity;
+mod projection;
 
 /// Derive the query metamodel for a struct.
 ///
@@ -42,165 +42,42 @@ use syn::{
 #[proc_macro_derive(Entity, attributes(oxider))]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    match expand(input) {
+    match entity::expand(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
-    let ident = &input.ident;
-    let options = EntityOptions::parse(&input)?;
-    let table = &options.table;
-
-    let fields = match &input.data {
-        Data::Struct(data) => match &data.fields {
-            Fields::Named(named) => &named.named,
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    ident,
-                    "Entity requires a struct with named fields",
-                ))
-            }
-        },
-        _ => {
-            return Err(syn::Error::new_spanned(
-                ident,
-                "Entity can only be derived on structs",
-            ))
-        }
-    };
-
-    let mut columns = Vec::new();
-    for field in fields {
-        let column = ColumnOptions::parse(field)?;
-        if column.skip {
-            continue;
-        }
-        let fid = field.ident.as_ref().expect("named field");
-        // A field named after a Rust keyword has to be written `r#type`, but
-        // `r#` is Rust syntax and not part of the column's name. Stripping it
-        // is what lets a schema use `type`, `match` or `ref` as a column.
-        let col_name = column
-            .name
-            .unwrap_or_else(|| fid.to_string().trim_start_matches("r#").to_string());
-        // Nullability is a runtime flag rather than a type-level one: widening
-        // every nullable column to `Option<T>` would take the string and
-        // numeric operators away from exactly the columns that need them most.
-        let (col_ty, nullable) = match option_inner(&field.ty) {
-            Some(inner) => (inner, true),
-            None => (&field.ty, false),
-        };
-        let constructor = match &options.schema {
-            Some(schema) => quote! {
-                ::oxider_query::Column::in_schema(#schema, #table, #col_name, #nullable)
-            },
-            None => quote! {
-                ::oxider_query::Column::new(#table, #col_name, #nullable)
-            },
-        };
-        columns.push(quote! {
-            #[allow(non_upper_case_globals)]
-            pub const #fid: ::oxider_query::Column<#ident, #col_ty> = #constructor;
-        });
+/// Derive positional row reading for a struct.
+///
+/// ```ignore
+/// #[derive(Entity, Projection)]
+/// #[oxider(table = "users")]
+/// struct User {
+///     id: i64,
+///     name: String,
+/// }
+///
+/// let rows: Vec<(User, Option<Order>)> = db.fetch_all_projected(query).await?;
+/// ```
+///
+/// Field *n* reads column *n* of the struct's span, so the struct follows the
+/// order of the `select` list rather than column names. Tuples of projections
+/// split one flat join into several structs, which is the shape
+/// `group_children` folds.
+///
+/// The generated impl names `oxider-query-exec`, so that crate has to be a
+/// dependency; it is what turns a row into a value, and it is already there for
+/// anyone running queries.
+///
+/// `#[oxider(skip)]` fields consume no column and are filled with
+/// `Default::default()`, which is the only value available for something the row
+/// does not carry.
+#[proc_macro_derive(Projection, attributes(oxider))]
+pub fn derive_projection(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match projection::expand(input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
     }
-
-    let schema_const = match &options.schema {
-        Some(schema) => quote! {
-            const SCHEMA: ::core::option::Option<&'static str> = ::core::option::Option::Some(#schema);
-        },
-        None => quote! {},
-    };
-
-    Ok(quote! {
-        impl ::oxider_query::Entity for #ident {
-            const TABLE: &'static str = #table;
-            #schema_const
-        }
-
-        impl #ident {
-            #(#columns)*
-        }
-    })
-}
-
-/// Struct-level `#[oxider(...)]` options.
-struct EntityOptions {
-    table: String,
-    schema: Option<String>,
-}
-
-impl EntityOptions {
-    fn parse(input: &DeriveInput) -> syn::Result<Self> {
-        let mut table = None;
-        let mut schema = None;
-        for attr in &input.attrs {
-            if !attr.path().is_ident("oxider") {
-                continue;
-            }
-            attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("table") {
-                    table = Some(meta.value()?.parse::<LitStr>()?.value());
-                    Ok(())
-                } else if meta.path.is_ident("schema") {
-                    schema = Some(meta.value()?.parse::<LitStr>()?.value());
-                    Ok(())
-                } else {
-                    Err(meta.error("unknown `oxider` option; expected `table` or `schema`"))
-                }
-            })?;
-        }
-        Ok(EntityOptions {
-            table: table.unwrap_or_else(|| input.ident.to_string().to_lowercase()),
-            schema,
-        })
-    }
-}
-
-/// Field-level `#[oxider(...)]` options.
-struct ColumnOptions {
-    name: Option<String>,
-    skip: bool,
-}
-
-impl ColumnOptions {
-    fn parse(field: &Field) -> syn::Result<Self> {
-        let mut name = None;
-        let mut skip = false;
-        for attr in &field.attrs {
-            if !attr.path().is_ident("oxider") {
-                continue;
-            }
-            attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("column") {
-                    name = Some(meta.value()?.parse::<LitStr>()?.value());
-                    Ok(())
-                } else if meta.path.is_ident("skip") {
-                    skip = true;
-                    Ok(())
-                } else {
-                    Err(meta.error("unknown `oxider` option; expected `column` or `skip`"))
-                }
-            })?;
-        }
-        Ok(ColumnOptions { name, skip })
-    }
-}
-
-/// If `ty` is `Option<Inner>`, return `Inner`.
-fn option_inner(ty: &Type) -> Option<&Type> {
-    let Type::Path(path) = ty else {
-        return None;
-    };
-    let segment = path.path.segments.last()?;
-    if segment.ident != "Option" {
-        return None;
-    }
-    let PathArguments::AngleBracketed(args) = &segment.arguments else {
-        return None;
-    };
-    args.args.iter().find_map(|arg| match arg {
-        GenericArgument::Type(inner) => Some(inner),
-        _ => None,
-    })
 }

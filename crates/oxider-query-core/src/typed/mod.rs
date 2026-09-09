@@ -27,7 +27,8 @@ pub mod selection;
 pub mod window;
 
 pub use aggregate::{
-    bool_and, bool_or, count_all, group_concat, AggOps, Aggregate, NumericAggOps, OrderedAggOps,
+    bool_and, bool_or, count_all, group_concat, percentile_cont, percentile_disc, AggOps,
+    Aggregate, NumericAggOps, OrderedAggOps, PercentileCont, PercentileDisc,
 };
 pub use case::{case_when, CaseBuilder};
 pub use column::{Aliased, Column, Entity, Table};

@@ -14,6 +14,7 @@
 //! date library. So this backend reads them back into `chrono` types before
 //! binding, using the same format constants the core crate wrote them with.
 
+use crate::scalars::{bind_decimal, bind_json, bind_uuid_native};
 use crate::Backend;
 use oxider_query_core::formats::{DATE, DATE_TIME, DATE_TIME_UTC, TIME};
 use oxider_query_core::Postgres as PostgresDialect;
@@ -75,6 +76,9 @@ macro_rules! bind_params {
                     Some(Stamp::Naive(naive)) => query.bind(naive),
                     None => query.bind(s.as_str()),
                 },
+                Value::Decimal(s) => bind_decimal!(query, s),
+                Value::Uuid(s) => bind_uuid_native!(query, s),
+                Value::Json(s) => bind_json!(query, s),
                 Value::Null => query.bind(Option::<i64>::None),
             };
         }

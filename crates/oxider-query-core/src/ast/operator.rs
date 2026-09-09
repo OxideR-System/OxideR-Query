@@ -341,11 +341,11 @@ pub enum Operator {
     LastValue,
     /// `NTH_VALUE(a, n)`
     NthValue,
-    /// `RATIO_TO_REPORT(a)`
-    RatioToReport,
-    /// `PERCENTILE_CONT(fraction)`
+    /// `PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY a)` - the
+    /// interpolated value a fraction of the way through the sorted group.
     PercentileCont,
-    /// `PERCENTILE_DISC(fraction)`
+    /// `PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY a)` - the first value
+    /// at or past that fraction, taken from the group as it is.
     PercentileDisc,
 
     // -- Sequences ----------------------------------------------------------
@@ -408,10 +408,9 @@ impl Operator {
             | TruncHour | TruncMinute | TruncSecond => Family::DateTime,
             CountAll | Count | Sum | Avg | Min | Max | StdDev | StdDevPop | StdDevSamp
             | Variance | VarPop | VarSamp | BoolAnd | BoolOr | GroupConcat | Corr | CovarPop
-            | CovarSamp => Family::Aggregate,
+            | CovarSamp | PercentileCont | PercentileDisc => Family::Aggregate,
             RowNumber | Rank | DenseRank | PercentRank | CumeDist | Ntile | Lag | Lead
-            | FirstValue | LastValue | NthValue | RatioToReport | PercentileCont
-            | PercentileDisc => Family::Window,
+            | FirstValue | LastValue | NthValue => Family::Window,
             NextVal | CurrVal => Family::Sequence,
         }
     }
@@ -421,5 +420,14 @@ impl Operator {
     /// `FILTER` clause.
     pub fn is_aggregate(self) -> bool {
         self.family() == Family::Aggregate
+    }
+
+    /// Whether this is an ordered-set aggregate, whose sort is written as
+    /// `WITHIN GROUP (ORDER BY ...)` after the call rather than inside it.
+    ///
+    /// The shape follows from the operator, so the renderer reads it from here
+    /// rather than from a flag on the node, where the two could disagree.
+    pub fn is_ordered_set(self) -> bool {
+        matches!(self, Operator::PercentileCont | Operator::PercentileDisc)
     }
 }
