@@ -31,7 +31,7 @@ REMOTE ?= origin
 CURRENT_VERSION = $(shell grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
 
 .PHONY: help fmt fmt-check lint test test-doc check bench audit package publish-dry \
-        docs-serve docs-build clean version release pg-up pg-down test-pg audit-or-warn
+        docs-serve docs-build clean version release pg-up pg-down test-pg \n        mysql-up mysql-down test-mysql audit-or-warn
 
 help: ## List the targets
 	@echo "OxideR-Query - available targets"
