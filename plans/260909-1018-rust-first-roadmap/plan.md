@@ -1,6 +1,6 @@
 # OxideR-Query: roadmap sau khi đổi mục tiêu sang "query builder tốt nhất cho Rust"
 
-Status: ĐANG CHẠY. P1-P6 XONG (2026-09-09). Kế tiếp: P7.
+Status: ĐANG CHẠY. P1-P7 XONG (2026-09-09). Kế tiếp: P8.
 Ngày tạo: 2026-09-09
 Baseline: v0.2.2, 157 scenario test + exec/codegen test, clippy sạch, fmt sạch.
 Thay thế phần "Việc còn lại" của `plans/260905-2058-querydsl-full-port/plan.md`.
@@ -38,7 +38,7 @@ Ghi chú: bỏ khỏi roadmap nghĩa là không lên kế hoạch, không phải
 | P4 | Kiểu giá trị: decimal, uuid, json, array | không có bốn kiểu này thì nhiều schema Postgres thật không dùng được | **XONG** trừ array |
 | P5 | `WITHIN GROUP` + gỡ `RatioToReport` | trả nợ API: 3 variant công khai mà mọi dialect đều từ chối | **XONG** |
 | P6 | Thông báo lỗi biên dịch có hướng dẫn | khác biệt chỉ Rust mới làm được; rẻ và tác động trực tiếp tới trải nghiệm | **XONG** |
-| P7 | Codegen Postgres (+ PK/FK) | giá trị cao, công sức cũng cao nhất trong danh sách | Lớn |
+| P7 | Codegen Postgres (+ PK/FK) | giá trị cao, công sức cũng cao nhất trong danh sách | **XONG** |
 | P8 | CI workflow | `make check` đã có, chỉ còn nối vào GitHub Actions | Rất nhỏ |
 | P9 | Streaming + batch DML | chỉ cần khi có người dùng chạm trần hiệu năng | Vừa |
 
@@ -232,6 +232,35 @@ Phạm vi thật: **chỉ Postgres**. MySQL 8 và SQLite đều không có order
 Biết trước điều này thì đừng kỳ vọng nhiều: giá trị chính của P5 là xoá 3 variant hứa suông, không phải tính năng mới.
 
 `RatioToReport` gỡ hẳn, không dialect nào có.
+
+## P7. Codegen Postgres - XONG
+
+`crates/oxider-query-codegen/src/postgres.rs`, đọc thẳng system catalog (`pg_class`, `pg_attribute`, `pg_index`, `pg_constraint`) chứ không qua `information_schema` - catalog cho `format_type` và oid, tức là kiểu chính xác và khoá tra không nhập nhằng.
+
+**API đổi:** `generate_entities` ở crate root chuyển thành `sqlite::generate_entities` và `postgres::generate_entities`.
+Hai hàm cùng tên không ở chung một root được, và tách module là câu trả lời đúng chứ không phải chỗ né: introspection là chỗ hai engine khác nhau nhiều nhất.
+Thêm `postgres::generate_entities_in(pool, &["public"])` - lọc theo schema là nhu cầu thật (database có bảng của extension, hoặc nhiều schema ứng dụng), và cũng là thứ làm bộ test độc lập được với nhau.
+
+**Feature quyết định kiểu sinh ra:** `chrono` (bật sẵn, khớp default của core), `rust_decimal`, `uuid`, `json`.
+Không feature nào kéo thêm dependency vào crate codegen - chúng chỉ đổi chuỗi được viết ra, còn nơi thật sự cần crate là manifest của người dùng.
+Lý do phải gate: gọi tên `rust_decimal::Decimal` trong project không có crate đó thì file sinh ra không biên dịch được, mà quy tắc của module này (`identifier.rs`) là mã sinh ra phải **luôn** parse được.
+
+**PK/FK thành doc comment, không thành attribute.**
+`#[derive(Entity)]` không có việc gì với khoá: nó mô tả bảng trông thế nào, không mô tả các dòng liên hệ ra sao, và join luôn viết tường minh.
+Thêm attribute mà không gì đọc nó là thêm API không tác dụng. Comment thì đọc đúng lúc ngồi viết join.
+FK nhiều cột ghép theo vị trí trong khoá (`unnest(conkey)` và `unnest(confkey)` cùng `WITH ORDINALITY`), có test riêng vì ghép sai vị trí là lỗi im lặng.
+
+**Kiểu không ánh xạ được** (mảng, enum, range, domain, PostGIS) thành `String` kèm comment gọi tên kiểu thật, thay vì bỏ cột. Struct thiếu cột thì im lặng sai; comment thì không.
+
+Bắt được hai lỗi trong lúc viết test, đều là lỗi thật của bộ test chứ không phải của module:
+1. `SET search_path` là thuộc tính của **một connection**, không phải của pool. Chạy DDL qua pool thì mỗi câu lấy một connection khác và bảng rơi vào `public`, nên các test nhìn thấy bảng của nhau. Sửa: cả phần setup chạy trên một connection `acquire()`.
+2. Dấu nháy kép trong identifier của PostgreSQL phải viết đôi, không phải escape bằng backslash. Tên bảng thù địch ban đầu không phải SQL hợp lệ.
+
+Và một assertion sai của chính tôi: `!source.contains("pub struct Evil")` không chứng minh gì, vì chuỗi đó **có** trong output - nằm trong string literal của attribute, đúng chỗ nó phải nằm. Câu hỏi thật là nó có thành item thứ hai không, nên test đếm `syn::parse_file(...).items.len() == 1`.
+
+8 test E2E, `make test-codegen`.
+
+MySQL codegen chưa làm, chưa xếp phase: cùng khuôn nhưng đọc `information_schema`, mở khi có nhu cầu thật.
 
 ## P6. Thông báo lỗi biên dịch - XONG
 

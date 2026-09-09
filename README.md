@@ -2,7 +2,7 @@
 
 Type-safe, multi-dialect SQL query builder for Rust, inspired by Java's [QueryDSL](https://github.com/querydsl/querydsl) but pushing type-safety further than a JVM can.
 
-> **The builder and the optional execution layer both target PostgreSQL, MySQL and SQLite. Schema codegen is SQLite only.** [Chapter 12](./docs/12-execution.md) covers the execution handle; [chapter 13](./docs/13-codegen.md) covers codegen.
+> **The builder, the optional execution layer and schema codegen all target PostgreSQL and SQLite; codegen does not cover MySQL yet.** [Chapter 12](./docs/12-execution.md) covers the execution handle; [chapter 13](./docs/13-codegen.md) covers codegen.
 
 > Status: 0.1.0, in active development. The full SELECT surface (every join, aliasing, `DISTINCT ON`, null ordering, row locking, set operations, CTEs including recursive ones, window functions, correlated subqueries), full DML (multi-row insert, insert-select, upsert, `RETURNING`, update-from, delete-using), and roughly 200 operators rendered for all three dialects. Pre-1.0, so the API tracks latest stable Rust and may change.
 
@@ -261,7 +261,7 @@ page.has_next();
 | `oxider-query-core` | AST, typed expression layer, builders, `Dialect` trait, renderer. No DB, no macros. |
 | `oxider-query-macros` | `#[derive(Entity)]` generating the query metamodel. |
 | `oxider-query-exec` | Optional async execution over sqlx (PostgreSQL, MySQL and SQLite). Binds params, maps rows. |
-| `oxider-query-codegen` | Optional schema introspection: generate `Entity` structs from an existing database (SQLite today). |
+| `oxider-query-codegen` | Optional schema introspection: generate `Entity` structs from an existing database (SQLite and PostgreSQL). |
 | `oxider-query` | Facade crate that downstream users depend on. |
 
 ## Documentation
@@ -289,7 +289,7 @@ Tests are scenarios rather than unit tests: each one builds a query a real appli
 | `crates/oxider-query-exec/tests/value_kinds_end_to_end.rs` | decimals, UUIDs and JSON against a database that has a type for none of them: a `NUMERIC` column ordering arithmetically, a `TEXT` column keeping every digit and ordering lexicographically, and both round trips |
 | `crates/oxider-query-exec/tests/projection_and_grouping.rs` | positional projections and the group-by fold: the `select` order deciding which field gets which column, a tuple splitting a flat join, `Option` going `None` only when its whole span is NULL, and the fold keeping the query's order |
 | `crates/oxider-query-exec/tests/mysql_end_to_end.rs` | the dialect that emulates the most: null ordering and aggregate `FILTER` rewritten and still returning the right rows, `ON DUPLICATE KEY UPDATE`, an instant landing in a `DATETIME` unshifted by the session zone, and `RETURNING` and `FULL JOIN` refused before a connection is touched. Skips unless `OXIDER_MYSQL_URL` is set; `make mysql-up test-mysql mysql-down` |
-| `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names |
+| `crates/oxider-query-codegen/tests/` | generated source parses as Rust, including keyword and non-identifier column names, and against a real PostgreSQL: every column type, composite foreign keys paired by position, and a table name written to close the attribute and open a second item |
 | `crates/oxider-query/tests/named_parameter_scenarios.rs` | named parameters: rebinding, an unbound name refused, resolution inside a correlated subquery |
 | `crates/oxider-query/tests/dynamic_query_depth_scenarios.rs` | flattened `AND`/`OR` chains, and the depth limit refusing rather than overflowing |
 | doc tests | each advertised compile-time guarantee, as `compile_fail` |

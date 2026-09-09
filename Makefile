@@ -32,7 +32,7 @@ CURRENT_VERSION = $(shell grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
 
 .PHONY: help fmt fmt-check lint test test-doc check bench audit package publish-dry \
         docs-serve docs-build clean version release audit-or-warn \
-        pg-up pg-down test-pg mysql-up mysql-down test-mysql test-db
+        pg-up pg-down test-pg mysql-up mysql-down test-mysql test-codegen test-db
 
 help: ## List the targets
 	@echo "OxideR-Query - available targets"
@@ -119,9 +119,15 @@ test-mysql: ## Run the MySQL end-to-end suite against a running server
 	OXIDER_MYSQL_URL=$(MYSQL_URL) $(CARGO) test -p oxider-query-exec \
 		--all-features --test mysql_end_to_end
 
+test-codegen: ## Run the PostgreSQL introspection suite against a running server
+	OXIDER_POSTGRES_URL=$(PG_URL) $(CARGO) test -p oxider-query-codegen \
+		--all-features
+
 test-db: ## Run every end-to-end suite: SQLite in-process, Postgres and MySQL live
 	OXIDER_POSTGRES_URL=$(PG_URL) OXIDER_MYSQL_URL=$(MYSQL_URL) \
 		$(CARGO) test -p oxider-query-exec --all-features --tests
+	OXIDER_POSTGRES_URL=$(PG_URL) $(CARGO) test -p oxider-query-codegen \
+		--all-features --tests
 
 bench: ## Render-throughput microbench (criterion)
 	$(CARGO) bench -p oxider-query
